@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+backend_env/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+.env
+.env.*
+
+# Logs
+*.log
+
+# Test files
+test/
+tests/
+*.test.py
+
+# PDF papers - mounted as a read-only volume at runtime
+app/papers/
+app/data/papers/
+
+# ChromaDB vector data - baked into the image for Cloud Run (stateless)
+# app/openai_chroma_data/

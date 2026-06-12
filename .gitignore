@@ -1,0 +1,76 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Environment variables - NEVER commit these!
+.env
+*.env
+/backend/app/.env
+
+# Python virtual environment
+backend_env/
+venv/
+env/
+ENV/
+.venv/
+
+# ChromaDB data - vector database (will be regenerated on server)
+/backend/app/chroma_data/
+/backend/app/openai_chroma_data/
+chroma_data/
+
+# Documentation files
+*.md
+!LICENSE.md
+/docs/
+DEPLOYMENT_ARCHITECTURE.md
+RENDER_DEPLOYMENT_GUIDE.md
+TESTING_GUIDE.md
+OPENAI_PIPELINE_MIGRATION_PLAN.md
+
+# Research papers - contains copyrighted PDFs
+/backend/app/papers/
+/backend/app/data/papers/
+/backend/app/papers_metadata.json

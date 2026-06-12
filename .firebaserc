@@ -1,0 +1,14 @@
+{
+  "projects": {
+    "default": "cysticcare-ai"
+  },
+  "targets": {
+    "cysticcare-ai": {
+      "hosting": {
+        "dialysiscare": [
+          "dialysiscare-app"
+        ]
+      }
+    }
+  }
+}
