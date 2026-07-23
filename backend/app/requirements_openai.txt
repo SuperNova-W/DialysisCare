@@ -5,9 +5,16 @@ uvicorn[standard]>=0.23.0
 pydantic>=2.0.0
 python-dotenv>=1.0.0
 pdfplumber>=0.9.0
+PyMuPDF>=1.23.0
 PyPDF2>=3.0.0
+# Required by PyPDF2 for AES-encrypted research papers during ingestion.
+pycryptodome>=3.20,<4
 numpy>=1.24.0
 requests>=2.31.0
 tiktoken>=0.5.0
-traceai-openai
-fi-instrumentation-otel
+# Optional at runtime but installed in the production image so
+# RAG_RERANKER_BACKEND=medcpt can run the local biomedical cross-encoder.
+torch>=2.2,<3
+transformers>=4.45,<6
+traceai-openai==0.1.10
+fi-instrumentation-otel==1.0.0

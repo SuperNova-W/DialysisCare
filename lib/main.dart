@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'services/backend_api.dart';
 import 'theme.dart';
 import 'utils/close_app.dart';
+import 'widgets/brand_logo.dart';
 import 'widgets/motion.dart';
 
 void main() {
@@ -333,51 +334,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
-      title: Row(
-        children: [
-          // DialysisCare Logo
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(borderRadius: BorderRadius.circular(10)),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: Image.asset(
-                'assets/images/logo.png',
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  // Fallback to icon if logo fails to load
-                  return Container(
-                    decoration: BoxDecoration(
-                      color: Brand.tealDeep,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(
-                      Icons.medical_services,
-                      color: Brand.green,
-                      size: 20,
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'DialysisCare',
-                style: brandText(18, FontWeight.w600, 1.2, spacing: -0.2),
-              ),
-              Text(
-                'AI Support for PKD',
-                style: brandText(12, FontWeight.w400, 1.2, color: Brand.steel),
-              ),
-            ],
-          ),
-        ],
-      ),
+      title: const BrandLockup(),
       actions: [
         Padding(
           padding: const EdgeInsets.only(right: 16),
@@ -525,29 +482,11 @@ class _ChatScreenState extends State<ChatScreen> {
           children: [
             Pulse(
               child: Container(
-                width: 64,
-                height: 64,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: Brand.shadow2,
                 ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: Image.asset(
-                    'assets/images/logo.png',
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
-                      return Container(
-                        color: Brand.tealDeep,
-                        child: const Icon(
-                          Icons.medical_services,
-                          color: Brand.green,
-                          size: 32,
-                        ),
-                      );
-                    },
-                  ),
-                ),
+                child: const BrandLogo(size: 64, radius: 16),
               ),
             ),
             const SizedBox(height: 24),
@@ -840,26 +779,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildAssistantAvatar() {
-    return Container(
-      width: 36,
-      height: 36,
-      decoration: const BoxDecoration(shape: BoxShape.circle),
-      child: ClipOval(
-        child: Image.asset(
-          'assets/images/logo.png',
-          width: 36,
-          height: 36,
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) {
-            // Fallback to icon with brand background if logo fails to load
-            return Container(
-              color: Brand.tealDeep,
-              child: const Icon(Icons.smart_toy, color: Brand.green, size: 18),
-            );
-          },
-        ),
-      ),
-    );
+    return const BrandLogo.circle(size: 36);
   }
 
   Widget _buildMessageBubble(ChatMessage message) {
@@ -1372,53 +1292,16 @@ class _ChatScreenState extends State<ChatScreen> {
                 colors: [Color(0xFF003B33), Brand.tealDeep],
               ),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.asset(
-                      'assets/images/logo.png',
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        // Fallback to icon if logo fails to load
-                        return const Icon(
-                          Icons.medical_services,
-                          color: Brand.green,
-                          size: 48,
-                        );
-                      },
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'DialysisCare',
-                  style: brandText(
-                    22,
-                    FontWeight.w500,
-                    1.3,
-                    spacing: -0.5,
-                    color: Brand.onDark,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'AI Support for PKD',
-                  style: brandText(
-                    13,
-                    FontWeight.w400,
-                    1.4,
-                    color: Brand.onDarkMuted,
-                  ),
-                ),
-              ],
+            child: const BrandLockup(
+              onDark: true,
+              axis: Axis.vertical,
+              markSize: 48,
+              markRadius: 12,
+              nameSize: 22,
+              nameWeight: FontWeight.w500,
+              nameSpacing: -0.5,
+              subSize: 13,
+              gap: 16,
             ),
           ),
           const SizedBox(height: 8),

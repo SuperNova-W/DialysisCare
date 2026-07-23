@@ -5,10 +5,11 @@ import 'package:http/http.dart' as http;
 class BackendApi {
   /// Override at runtime with:
   /// flutter run --dart-define=BACKEND_BASE_URL=http://10.0.2.2:8001
-  /// Defaults to local backend; set --dart-define=BACKEND_BASE_URL for production
+  /// Defaults to the production backend; use --dart-define to override it.
   static const String _rawBase = String.fromEnvironment(
     'BACKEND_BASE_URL',
-    defaultValue: 'http://localhost:8080',
+    defaultValue:
+        'https://dialysiscare-backend-798621865464.us-east1.run.app',
   );
 
   // Normalize base URL (trim whitespace/newlines and trailing slashes)

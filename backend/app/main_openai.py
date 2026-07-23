@@ -1,12 +1,15 @@
 import os
 import sys
+import json
+import asyncio
 from dotenv import load_dotenv
 import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from contextlib import asynccontextmanager
 from .services.openai_rag_init import (
     initialize_openai_rag_system,
@@ -19,7 +22,7 @@ from .utils.refusal_utils import (
     is_refusal_response,
     normalize_refusal_response,
 )
-from .integrations.traceai import setup_traceai
+from .integrations.traceai import get_traceai_status, setup_traceai
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '../.env'))  # legacy, but also try backend/.env
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))  # fallback for backend/.env
@@ -31,7 +34,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def build_empty_chat_response(request: "ChatRequest", response_text: str) -> "ChatResponse":
+def build_empty_chat_response(
+    request: "ChatRequest",
+    response_text: str,
+    retrieval_metadata: Optional[Dict[str, Any]] = None,
+    retrieved_chunks: Optional[List[Dict[str, Any]]] = None,
+) -> "ChatResponse":
     """Return a response payload with no sources or follow-up questions."""
     return ChatResponse(
         status="success",
@@ -44,14 +52,23 @@ def build_empty_chat_response(request: "ChatRequest", response_text: str) -> "Ch
         stepback_query="",
         followup_questions=[],
         validation=None,
+        retrieval_metadata=retrieval_metadata or {},
+        retrieved_chunks=retrieved_chunks or [],
     )
 
 
-def build_refusal_chat_response(request: "ChatRequest", response_text: str) -> "ChatResponse":
+def build_refusal_chat_response(
+    request: "ChatRequest",
+    response_text: str,
+    retrieval_metadata: Optional[Dict[str, Any]] = None,
+    retrieved_chunks: Optional[List[Dict[str, Any]]] = None,
+) -> "ChatResponse":
     """Return a response payload with no sources for refusal cases."""
     return build_empty_chat_response(
         request,
         normalize_refusal_response(response_text),
+        retrieval_metadata=retrieval_metadata,
+        retrieved_chunks=retrieved_chunks,
     )
 
 
@@ -68,13 +85,14 @@ class InitializeResponse(BaseModel):
     documents_processed: int
     chunks_created: int
     total_vectors: int = 0
+    requires_rebuild: bool = False
 
 
 class ChatRequest(BaseModel):
     """Request model for chat endpoint"""
     query: str
     session_id: str = "default"
-    top_k: int = 5
+    top_k: int = Field(default=5, ge=1, le=20)
     temperature: float = 0.7
     max_tokens: int = 2000
     use_query_rewriting: bool = True  # Enable query rewriting by default
@@ -83,6 +101,7 @@ class ChatRequest(BaseModel):
     use_adaptive_agent: bool = True  # Auto-select best agent
     pre_check_topic: bool = False  # Legacy flag; topic gating is handled inside agent prompts
     use_validation: bool = True  # Enable answer validation agent
+    include_retrieval_debug: bool = False  # Return chunk IDs/content for offline retrieval evaluation
 
 
 class SourceInfo(BaseModel):
@@ -132,6 +151,8 @@ class ChatResponse(BaseModel):
     stepback_query: str = ""  # Stepback query if stepback mode used
     followup_questions: List[str] = []  # Suggested follow-up questions
     validation: Optional[ValidationInfo] = None  # Validation results (if enabled)
+    retrieval_metadata: Dict[str, Any] = {}
+    retrieved_chunks: List[Dict[str, Any]] = []
 
 
 class HealthResponse(BaseModel):
@@ -140,6 +161,7 @@ class HealthResponse(BaseModel):
     version: str
     timestamp: str
     collection_stats: Dict[str, Any]
+    traceai: Dict[str, Any]
 
 
 class FollowUpRequest(BaseModel):
@@ -271,7 +293,8 @@ async def initialize_endpoint(request: InitializeRequest) -> InitializeResponse:
             message=result["message"],
             documents_processed=result.get("documents_processed", 0),
             chunks_created=result.get("chunks_created", 0),
-            total_vectors=result.get("total_vectors", 0)
+            total_vectors=result.get("total_vectors", 0),
+            requires_rebuild=result.get("requires_rebuild", False),
         )
         
     except Exception as e:
@@ -360,9 +383,16 @@ async def chat_endpoint(request: ChatRequest) -> ChatResponse:
 
         if result.get("refused") or is_refusal_response(result.get("response", "")):
             logger.info("Returning refusal response without sources")
+            debug_chunks = (
+                result.get("retrieval_debug_chunks", result.get("retrieved_chunks", []))
+                if request.include_retrieval_debug
+                else []
+            )
             return build_refusal_chat_response(
                 request,
                 result.get("response", REFUSAL_MESSAGE),
+                retrieval_metadata=result.get("retrieval_metadata", {}),
+                retrieved_chunks=debug_chunks,
             )
 
         sources = [
@@ -394,9 +424,12 @@ async def chat_endpoint(request: ChatRequest) -> ChatResponse:
         followup_questions: List[str] = []
         try:
             from .services.followup_agent import FollowUpAgent
-            from .services.openai_rag_init import openai_service as _oai_svc
+            from .services.openai_rag_init import (
+                openai_service as _oai_svc,
+                openai_helper_service as _helper_svc,
+            )
             if _oai_svc is not None:
-                followup_agent = FollowUpAgent(_oai_svc)
+                followup_agent = FollowUpAgent(_helper_svc or _oai_svc)
                 followup_questions = await followup_agent.generate_followup_questions(
                     query=request.query,
                     response=result["response"],
@@ -411,9 +444,12 @@ async def chat_endpoint(request: ChatRequest) -> ChatResponse:
         if request.use_validation:
             try:
                 from .services.validation_agent import ValidationAgent
-                from .services.openai_rag_init import openai_service as _val_svc
+                from .services.openai_rag_init import (
+                    openai_service as _val_svc,
+                    openai_helper_service as _val_helper_svc,
+                )
                 if _val_svc is not None:
-                    validation_agent = ValidationAgent(_val_svc)
+                    validation_agent = ValidationAgent(_val_helper_svc or _val_svc)
                     retrieved_chunks = result.get("retrieved_chunks", [])
 
                     val_result = await validation_agent.validate_and_retry(
@@ -448,7 +484,16 @@ async def chat_endpoint(request: ChatRequest) -> ChatResponse:
 
         if is_refusal_response(final_response_text):
             logger.info("Validation returned refusal response without sources")
-            return build_refusal_chat_response(request, final_response_text)
+            return build_refusal_chat_response(
+                request,
+                final_response_text,
+                retrieval_metadata=result.get("retrieval_metadata", {}),
+                retrieved_chunks=(
+                    result.get("retrieved_chunks", [])
+                    if request.include_retrieval_debug
+                    else []
+                ),
+            )
 
         response = ChatResponse(
             status="success",
@@ -461,6 +506,12 @@ async def chat_endpoint(request: ChatRequest) -> ChatResponse:
             stepback_query=result.get("stepback_query", ""),
             followup_questions=followup_questions,
             validation=validation_info,
+            retrieval_metadata=result.get("retrieval_metadata", {}),
+            retrieved_chunks=(
+                result.get("retrieved_chunks", [])
+                if request.include_retrieval_debug
+                else []
+            ),
         )
         
         logger.info(f"Chat response generated successfully ({len(sources)} sources)")
@@ -470,6 +521,383 @@ async def chat_endpoint(request: ChatRequest) -> ChatResponse:
         raise
     except Exception as e:
         logger.error(f"Error in chat endpoint: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def generate_chat_stream(request: ChatRequest):
+    """
+    Generator for /chat-stream that yields line-delimited JSON events.
+    """
+    try:
+        from .services.openai_rag_init import (
+            openai_service,
+            search_knowledge_base,
+            STANDARD_RAG_SYSTEM_PROMPT,
+            EMPTY_KNOWLEDGE_BASE_MESSAGE,
+            INSUFFICIENT_RETRIEVAL_MESSAGE,
+        )
+
+        if openai_service is None:
+            yield json.dumps({"type": "error", "data": "RAG system not initialized yet"}) + "\n"
+            yield json.dumps({"type": "done"}) + "\n"
+            return
+
+        yield json.dumps({"type": "status", "data": "Checking guardrails..."}) + "\n"
+        await asyncio.sleep(0.01)
+
+        guardrail_response = get_guardrail_response(request.query)
+        if guardrail_response is not None:
+            logger.info("Answered query via guardrail response in stream")
+            yield json.dumps({"type": "status", "data": "Processing refusal..."}) + "\n"
+            refusal_normalized = normalize_refusal_response(guardrail_response) if guardrail_response == REFUSAL_MESSAGE else guardrail_response
+            yield json.dumps({"type": "chunk", "data": refusal_normalized}) + "\n"
+            yield json.dumps({"type": "sources", "data": []}) + "\n"
+            yield json.dumps({"type": "done"}) + "\n"
+            return
+
+        yield json.dumps({"type": "status", "data": "Selecting reasoning agent..."}) + "\n"
+        await asyncio.sleep(0.01)
+
+        if request.use_adaptive_agent:
+            from .services.adaptive_agent_selector import AdaptiveAgentSelector
+            agent_config = await AdaptiveAgentSelector.select_agent(request.query)
+            logger.info(f"Adaptive Agent Selected in Stream: {agent_config['recommendation']}")
+            request.use_stepback = agent_config['use_stepback']
+            request.use_cot = agent_config['use_cot']
+            yield json.dumps({"type": "status", "data": f"Selected mode: {agent_config['recommendation']}"}) + "\n"
+            await asyncio.sleep(0.01)
+
+        agent_type = "standard_rag"
+        if request.use_stepback:
+            agent_type = "stepback"
+        elif request.use_cot:
+            agent_type = "cot"
+
+        sources = []
+        retrieved_chunks = []
+        stepback_query = ""
+        reasoning_chain = []
+        retrieval_metadata = {}
+
+        # Execute selected agent retrieval
+        if request.use_stepback:
+            yield json.dumps({"type": "status", "data": "Decomposing query using Stepback..."}) + "\n"
+            await asyncio.sleep(0.01)
+            from .services.stepback_agent import StepbackAgent
+            stepback_agent = StepbackAgent(openai_service)
+            
+            retrieval_results = await stepback_agent.retrieve_with_stepback(request.query, request.top_k)
+            stepback_query = retrieval_results.get("stepback_query", "")
+            if retrieval_results.get("off_topic"):
+                yield json.dumps({"type": "status", "data": "Processing refusal..."}) + "\n"
+                yield json.dumps({"type": "chunk", "data": REFUSAL_MESSAGE}) + "\n"
+                yield json.dumps({"type": "done"}) + "\n"
+                return
+
+            retrieved_chunks = retrieval_results.get("results", [])
+            retrieval_metadata = retrieval_results.get("retrieval_metadata", {})
+            
+        elif request.use_cot:
+            yield json.dumps({"type": "status", "data": "Decomposing query into reasoning steps..."}) + "\n"
+            await asyncio.sleep(0.01)
+            from .services.cot_rag_service import get_cot_rag_service
+            cot_service = get_cot_rag_service(openai_service)
+            
+            sub_questions = await cot_service.decompose_query(request.query)
+            if sub_questions == ["OFF_TOPIC"]:
+                yield json.dumps({"type": "status", "data": "Processing refusal..."}) + "\n"
+                yield json.dumps({"type": "chunk", "data": REFUSAL_MESSAGE}) + "\n"
+                yield json.dumps({"type": "done"}) + "\n"
+                return
+
+            sub_questions = sub_questions[:5]
+            yield json.dumps({"type": "status", "data": f"Decomposed query into {len(sub_questions)} steps."}) + "\n"
+            await asyncio.sleep(0.01)
+            
+            previous_findings = []
+            cot_retrieval_steps = []
+            for i, sub_q in enumerate(sub_questions):
+                yield json.dumps({"type": "status", "data": f"Step {i+1}: Searching DB for '{sub_q[:35]}...' "}) + "\n"
+                await asyncio.sleep(0.01)
+                search_results = await cot_service.retrieve_for_step(sub_q, request.top_k)
+                step_metadata = search_results.get("retrieval_metadata", {})
+                cot_retrieval_steps.append({
+                    "step": i + 1,
+                    "result_count": len(search_results.get("results", [])),
+                    "confidence": step_metadata.get("confidence"),
+                    "reranker_used": step_metadata.get("reranker_used"),
+                })
+                
+                if search_results["status"] != "success" or not search_results["results"]:
+                    continue
+                    
+                context_parts = []
+                for j, result in enumerate(search_results["results"]):
+                    meta = result.get("metadata", {})
+                    display_name = meta.get("display_name", f"Source {len(retrieved_chunks)+j+1}")
+                    context_parts.append(f"[{display_name}]\n{result['document']}")
+                    
+                    source_info = {
+                        "index": len(retrieved_chunks) + j + 1,
+                        "title": meta.get("title", "Unknown"),
+                        "author": meta.get("author", "Unknown"),
+                        "year": meta.get("year", "Unknown"),
+                        "file": meta.get("file_name", "Unknown"),
+                        "citation": meta.get("citation", ""),
+                        "display_name": display_name,
+                        "relevance_score": result.get("relevance_score", 0),
+                        "step": i + 1
+                    }
+                    sources.append(source_info)
+                    retrieved_chunks.append(result)
+                
+                context = "\n\n".join(context_parts)
+                yield json.dumps({"type": "status", "data": f"Step {i+1}: Reasoning..."}) + "\n"
+                await asyncio.sleep(0.01)
+                reasoning = await cot_service.reason_through_step(sub_q, context, previous_findings)
+                
+                step_data = {
+                    "step": i + 1,
+                    "sub_question": sub_q,
+                    "reasoning": reasoning,
+                    "sources_used": len(search_results["results"])
+                }
+                reasoning_chain.append(step_data)
+                previous_findings.append(reasoning)
+                
+        else: # Standard RAG
+            search_query = request.query
+            if request.use_query_rewriting:
+                yield json.dumps({"type": "status", "data": "Optimizing search query..."}) + "\n"
+                await asyncio.sleep(0.01)
+                from .services.query_rewriter import get_query_rewriter
+                query_rewriter = get_query_rewriter(openai_service)
+                search_query = await query_rewriter.rewrite_query_simple(request.query)
+            
+            yield json.dumps({"type": "status", "data": "Searching database..."}) + "\n"
+            await asyncio.sleep(0.01)
+            search_results = await search_knowledge_base(search_query, request.top_k)
+            if search_results["status"] != "success":
+                yield json.dumps({"type": "error", "data": "Database search failed"}) + "\n"
+                yield json.dumps({"type": "done"}) + "\n"
+                return
+            retrieved_chunks = search_results.get("results", [])
+            retrieval_metadata = search_results.get("retrieval_metadata", {})
+
+        if request.use_cot:
+            cot_confidence = (
+                "insufficient"
+                if any(step.get("confidence") == "insufficient" for step in cot_retrieval_steps)
+                else "context_available" if retrieved_chunks else "unavailable"
+            )
+            retrieval_metadata = {
+                "confidence": cot_confidence,
+                "steps": cot_retrieval_steps,
+            }
+            if not reasoning_chain or not retrieved_chunks:
+                yield json.dumps({"type": "status", "data": "Processing empty database response..."}) + "\n"
+                no_context_message = (
+                    INSUFFICIENT_RETRIEVAL_MESSAGE
+                    if cot_confidence == "insufficient"
+                    else EMPTY_KNOWLEDGE_BASE_MESSAGE
+                )
+                yield json.dumps({"type": "chunk", "data": no_context_message}) + "\n"
+                yield json.dumps({"type": "sources", "data": []}) + "\n"
+                yield json.dumps({"type": "done"}) + "\n"
+                return
+
+        if not request.use_cot:
+            if not retrieved_chunks:
+                yield json.dumps({"type": "status", "data": "Processing empty database response..."}) + "\n"
+                no_context_message = (
+                    INSUFFICIENT_RETRIEVAL_MESSAGE
+                    if retrieval_metadata.get("confidence") == "insufficient"
+                    else EMPTY_KNOWLEDGE_BASE_MESSAGE
+                )
+                yield json.dumps({"type": "chunk", "data": no_context_message}) + "\n"
+                yield json.dumps({"type": "done"}) + "\n"
+                return
+
+            unique_sources = {}
+            for i, result in enumerate(retrieved_chunks):
+                meta = result.get("metadata", {})
+                display_name = meta.get("display_name", f"Source {i+1}")
+                citation = meta.get("citation", "Unknown Source")
+                file_key = display_name or meta.get("file_name") or citation or f"chunk_{i}"
+
+                score = result.get("relevance_score", 0)
+                if file_key not in unique_sources or score > unique_sources[file_key]["relevance_score"]:
+                    unique_sources[file_key] = {
+                        "title": meta.get("title", "Unknown"),
+                        "author": meta.get("author", "Unknown"),
+                        "year": meta.get("year", "Unknown"),
+                        "file": file_key,
+                        "citation": citation,
+                        "display_name": display_name,
+                        "relevance_score": score,
+                    }
+
+            sources = [
+                {"index": idx + 1, **s}
+                for idx, s in enumerate(
+                    sorted(unique_sources.values(), key=lambda x: -x["relevance_score"])
+                )
+            ]
+        else:
+            unique_sources = {}
+            for source in sources:
+                key = source["display_name"] or source["file"] or source["citation"] or str(source["index"])
+                if key not in unique_sources:
+                    unique_sources[key] = source.copy()
+                else:
+                    if source["relevance_score"] > unique_sources[key]["relevance_score"]:
+                        unique_sources[key]["relevance_score"] = source["relevance_score"]
+            sources = [
+                {"index": idx + 1, **s}
+                for idx, s in enumerate(
+                    sorted(unique_sources.values(), key=lambda x: -x["relevance_score"])
+                )
+            ]
+
+        yield json.dumps({"type": "sources", "data": sources}) + "\n"
+        await asyncio.sleep(0.01)
+
+        yield json.dumps({"type": "status", "data": "Synthesizing answer..."}) + "\n"
+        await asyncio.sleep(0.01)
+
+        system_prompt = ""
+        user_message = ""
+        
+        if request.use_cot:
+            chain_of_thought = []
+            for idx, step in enumerate(reasoning_chain):
+                chain_of_thought.append(f"**Step {idx+1}:** {step['sub_question']}\n{step['reasoning']}")
+            reasoning_summary = "\n\n".join(chain_of_thought)
+            from .services.cot_rag_service import COT_RAG_SYSTEM_PROMPT
+            system_prompt = COT_RAG_SYSTEM_PROMPT
+            user_message = f"ORIGINAL QUESTION: {request.query}\n\nCHAIN OF THOUGHT REASONING:\n{reasoning_summary}\n\nBased on this step-by-step analysis, provide a comprehensive answer:"
+            
+        elif request.use_stepback:
+            from .services.stepback_agent import STEPBACK_SYSTEM_PROMPT
+            system_prompt = STEPBACK_SYSTEM_PROMPT
+            context_parts = []
+            for idx, doc in enumerate(retrieved_chunks[:request.top_k * 2]):
+                metadata = doc.get("metadata", {})
+                content = doc.get("document", "")
+                source_type = doc.get("retrieval_source", "unknown")
+                display_name = metadata.get("display_name", f"Source {idx+1}")
+                context_parts.append(f"[Source {idx+1} - {source_type}: {display_name}]\n{content}\n")
+            context = "\n".join(context_parts)
+            user_message = f"USER QUESTION: {request.query}\n\nRETRIEVED CONTEXT:\n{context}\n\nPlease provide a comprehensive answer based on the sources above."
+            
+        else: # Standard RAG
+            context_parts = []
+            for idx, result in enumerate(retrieved_chunks):
+                display_name = result.get("metadata", {}).get("display_name", f"Source {idx+1}")
+                context_parts.append(f"[Source {idx+1}: {display_name}]\n{result['document']}")
+            context = "\n\n".join(context_parts)
+            system_prompt = f"""{STANDARD_RAG_SYSTEM_PROMPT}
+
+Use the following context to answer the user's question. If the context doesn't contain relevant information, say so explicitly.
+
+CONTEXT:
+{context}
+
+Instructions:
+1. Answer based on the provided context
+2. Cite sources if available
+3. Be accurate and helpful
+"""
+            user_message = request.query
+
+        # Start streaming final synthesized completion
+        final_answer = ""
+        for chunk in openai_service.stream_chat_completion(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens
+        ):
+            final_answer += chunk
+            yield json.dumps({"type": "chunk", "data": chunk}) + "\n"
+            await asyncio.sleep(0.001)
+
+        if is_refusal_response(final_answer):
+            logger.info("Streamed answer is a refusal response, no followup or validation needed.")
+            yield json.dumps({"type": "done"}) + "\n"
+            return
+
+        # Generate follow-up questions
+        yield json.dumps({"type": "status", "data": "Generating suggested follow-ups..."}) + "\n"
+        await asyncio.sleep(0.01)
+        followup_questions = []
+        try:
+            from .services.followup_agent import FollowUpAgent
+            followup_agent = FollowUpAgent(openai_service)
+            followup_questions = await followup_agent.generate_followup_questions(
+                query=request.query,
+                response=final_answer,
+            )
+            yield json.dumps({"type": "followup", "data": followup_questions}) + "\n"
+        except Exception as fu_err:
+            logger.warning(f"Stream followup questions generation failed: {fu_err}")
+
+        # Run Validation Agent
+        validation_info = None
+        if request.use_validation:
+            yield json.dumps({"type": "status", "data": "Validating answer accuracy..."}) + "\n"
+            await asyncio.sleep(0.01)
+            try:
+                from .services.validation_agent import ValidationAgent
+                validation_agent = ValidationAgent(openai_service)
+                val_result = await validation_agent.validate_and_retry(
+                    query=request.query,
+                    answer=final_answer,
+                    retrieved_chunks=retrieved_chunks,
+                    agent_type=agent_type,
+                    temperature=request.temperature,
+                    max_tokens=request.max_tokens,
+                )
+                final_validated_answer = val_result["answer"]
+                val_data = val_result["validation"].to_dict()
+                
+                validation_info = {
+                    "passed": val_data["passed"],
+                    "overall_score": val_data["overall_score"],
+                    "checks": val_data["checks"],
+                    "warnings": val_data.get("warnings", []),
+                    "was_regenerated": val_result["was_regenerated"]
+                }
+                
+                yield json.dumps({
+                    "type": "validation", 
+                    "data": validation_info, 
+                    "validation_text": final_validated_answer if val_result["was_regenerated"] else None
+                }) + "\n"
+            except Exception as val_err:
+                logger.warning(f"Stream validation failed: {val_err}")
+
+        yield json.dumps({"type": "done"}) + "\n"
+
+    except Exception as e:
+        logger.error(f"Error in generate_chat_stream: {e}")
+        yield json.dumps({"type": "error", "data": str(e)}) + "\n"
+        yield json.dumps({"type": "done"}) + "\n"
+
+
+@app.post("/chat-stream")
+async def chat_stream_endpoint(request: ChatRequest):
+    """
+    Endpoint for chat response streaming.
+    Returns a line-delimited JSON stream (application/x-ndjson).
+    """
+    try:
+        return StreamingResponse(
+            generate_chat_stream(request),
+            media_type="application/x-ndjson"
+        )
+    except Exception as e:
+        logger.error(f"Error in chat_stream_endpoint: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -540,7 +968,8 @@ async def health_endpoint() -> HealthResponse:
                 status="initializing",
                 version="1.0.0",
                 timestamp=datetime.now().isoformat(),
-                collection_stats=stats
+                collection_stats=stats,
+                traceai=get_traceai_status(),
             )
         else:
             stats = get_collection_stats()
@@ -548,7 +977,8 @@ async def health_endpoint() -> HealthResponse:
                 status="healthy" if stats.get("status") == "success" else "degraded",
                 version="1.0.0",
                 timestamp=datetime.now().isoformat(),
-                collection_stats=stats
+                collection_stats=stats,
+                traceai=get_traceai_status(),
             )
         
         logger.info(f"Health check - Status: {health.status}")
@@ -693,9 +1123,10 @@ async def root():
         },
         "info": {
             "embedding_model": "text-embedding-3-small (1536 dimensions)",
-            "llm_model": "gpt-5.4-mini",
+            "llm_model": "gpt-5.5",
+            "vision_model": "gpt-5.5",
             "vector_store": "ChromaDB (persistent disk-based)",
-            "pdf_processing": "pdfplumber + PyPDF2",
+            "pdf_processing": "pdfplumber + PyMuPDF + PyPDF2",
             "chunking": "400-word chunks"
         }
     }
@@ -709,22 +1140,29 @@ async def root():
 async def http_exception_handler(request, exc):
     """Custom HTTP exception handler"""
     logger.error(f"HTTP Exception: {exc.status_code} - {exc.detail}")
-    return {
-        "status": "error",
-        "detail": exc.detail,
-        "status_code": exc.status_code
-    }
+    return JSONResponse(
+        status_code=exc.status_code,
+        headers=getattr(exc, "headers", None),
+        content={
+            "status": "error",
+            "detail": exc.detail,
+            "status_code": exc.status_code,
+        },
+    )
 
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request, exc):
     """General exception handler"""
     logger.error(f"Unhandled Exception: {str(exc)}")
-    return {
-        "status": "error",
-        "detail": "Internal server error",
-        "message": str(exc)
-    }
+    return JSONResponse(
+        status_code=500,
+        content={
+            "status": "error",
+            "detail": "Internal server error",
+            "message": str(exc),
+        },
+    )
 
 
 # ============================================================================
