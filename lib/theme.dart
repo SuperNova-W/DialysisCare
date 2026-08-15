@@ -1,49 +1,48 @@
 import 'package:flutter/material.dart';
 
-/// Design tokens from DESIGN-mongodb.md (MongoDB design system).
+/// Restrained clinical design tokens for an evidence-based learning product.
 abstract final class Brand {
   // Brand & accent
-  static const Color green = Color(0xFF00ED64);
-  static const Color greenPressed = Color(0xFF008C34);
-  static const Color greenDark = Color(0xFF00684A);
-  static const Color greenMid = Color(0xFF00A35C);
-  static const Color greenSoft = Color(0xFFC3F0D2);
-  static const Color tealDeep = Color(0xFF001E2B);
-  static const Color teal = Color(0xFF003D4F);
+  static const Color green = Color(0xFF5CC8BE);
+  static const Color greenPressed = Color(0xFF0B676A);
+  static const Color greenDark = Color(0xFF0B6F73);
+  static const Color greenMid = Color(0xFF168C89);
+  static const Color greenSoft = Color(0xFFDDF4F1);
+  static const Color tealDeep = Color(0xFF102A43);
+  static const Color teal = Color(0xFF1D6075);
 
-  // Category accents (used only for question-category tags)
-  static const Color accentPurple = Color(0xFF7B3FF2);
-  static const Color accentOrange = Color(0xFFFA6E39);
-  static const Color accentPink = Color(0xFFF06BB8);
-  static const Color accentBlue = Color(0xFF3D4F9F);
+  // Muted category accents used for curriculum-oriented topic tags.
+  static const Color accentPurple = Color(0xFF665F9E);
+  static const Color accentOrange = Color(0xFFB56D32);
+  static const Color accentPink = Color(0xFF9C5F78);
+  static const Color accentBlue = Color(0xFF356F9E);
 
   // Surfaces
-  static const Color canvas = Color(0xFFFFFFFF);
-  static const Color surface = Color(0xFFF9FBFA);
-  static const Color surfaceSoft = Color(0xFFF4F7F6);
-  static const Color surfaceFeature = Color(0xFFE3FCEF);
-  static const Color hairline = Color(0xFFE1E5E8);
-  static const Color hairlineSoft = Color(0xFFECEFF1);
-  static const Color hairlineStrong = Color(0xFFC1CCD6);
-  static const Color hairlineDark = Color(0xFF1C2D38);
+  static const Color canvas = Color(0xFFFBFCFE);
+  static const Color surface = Color(0xFFF4F7FA);
+  static const Color surfaceSoft = Color(0xFFEDF2F6);
+  static const Color surfaceFeature = Color(0xFFE8F5F4);
+  static const Color hairline = Color(0xFFDDE5EC);
+  static const Color hairlineSoft = Color(0xFFE9EFF4);
+  static const Color hairlineStrong = Color(0xFFB9C7D3);
+  static const Color hairlineDark = Color(0xFF29445C);
 
   // Text
-  static const Color ink = Color(0xFF001E2B);
-  static const Color slate = Color(0xFF3D4F5B);
-  static const Color steel = Color(0xFF5C6C7A);
-  static const Color stone = Color(0xFF7C8C9A);
-  static const Color muted = Color(0xFFA8B3BC);
+  static const Color ink = Color(0xFF102A43);
+  static const Color slate = Color(0xFF334E68);
+  static const Color steel = Color(0xFF5D7285);
+  static const Color stone = Color(0xFF788B9B);
+  static const Color muted = Color(0xFFA5B3BF);
   static const Color onDark = Color(0xFFFFFFFF);
-  static const Color onDarkMuted = Color(0xFFA8B3BC);
+  static const Color onDarkMuted = Color(0xFFB9CAD8);
 
   // Semantic
-  static const Color warningBg = Color(0xFFFFF8E0);
-  static const Color warningText = Color(0xFF946F3F);
-  static const Color danger = Color(0xFFEF5350);
+  static const Color warningBg = Color(0xFFFFF6E6);
+  static const Color warningText = Color(0xFF795329);
+  static const Color danger = Color(0xFFB84444);
 
-  static const String fontFamily = 'Euclid Circular A';
+  static const String fontFamily = 'SF Pro Text';
   static const List<String> fontFallback = [
-    'SF Pro Text',
     'Segoe UI',
     'Roboto',
     'Helvetica Neue',
@@ -59,14 +58,14 @@ abstract final class Brand {
 
   // Elevation scale (levels 1-3 from the design doc)
   static const List<BoxShadow> shadow1 = [
-    BoxShadow(color: Color(0x0A001E2B), blurRadius: 2, offset: Offset(0, 1)),
+    BoxShadow(color: Color(0x0A102A43), blurRadius: 2, offset: Offset(0, 1)),
   ];
   static const List<BoxShadow> shadow2 = [
-    BoxShadow(color: Color(0x14001E2B), blurRadius: 12, offset: Offset(0, 4)),
+    BoxShadow(color: Color(0x14102A43), blurRadius: 12, offset: Offset(0, 4)),
   ];
   static const List<BoxShadow> shadow3 = [
     BoxShadow(
-      color: Color(0x1F001E2B),
+      color: Color(0x1F102A43),
       blurRadius: 24,
       offset: Offset(0, 12),
       spreadRadius: -4,
@@ -109,8 +108,8 @@ ThemeData buildBrandTheme() {
   );
 
   const scheme = ColorScheme.light(
-    primary: Brand.green,
-    onPrimary: Brand.ink,
+    primary: Brand.greenDark,
+    onPrimary: Brand.onDark,
     secondary: Brand.greenDark,
     onSecondary: Brand.onDark,
     surface: Brand.canvas,
@@ -171,7 +170,7 @@ ThemeData buildBrandTheme() {
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: Brand.canvas,
+      fillColor: Brand.surface,
       hintStyle: brandText(15, FontWeight.w400, 1.50, color: Brand.steel),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
       enabledBorder: OutlineInputBorder(
