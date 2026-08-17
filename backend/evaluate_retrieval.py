@@ -6,7 +6,7 @@ Examples:
   # Existing generated benchmark output: evaluate final retrieved papers.
   python evaluate_retrieval.py \
     --benchmark app/pipeline_results.json \
-    --predictions app/pipeline_results_with_cysticcare.json \
+    --predictions app/pipeline_results_with_dialysiscare.json \
     --k 1,3,5,10 --label-level paper
 
   # A future trace file with ``chunk_id`` fields: evaluate exact passages.
@@ -50,7 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--predictions",
         help=(
             "Ranked retrieval output. Omit only when the benchmark itself contains "
-            "retrieved sources (for example cysticcare_metadata.sources)."
+            "retrieved sources (for example dialysiscare_metadata.sources)."
         ),
     )
     parser.add_argument(

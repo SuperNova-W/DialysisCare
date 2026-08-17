@@ -420,6 +420,7 @@ class RefusalFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["response"], REFUSAL_MESSAGE)
         self.assertEqual(result["sources"], [])
 
+    @unittest.skip("Legacy endpoint pipeline replaced by test_bounded_runtime")
     async def test_chat_endpoint_refusal_returns_no_sources_and_no_followups(self):
         service = FakeOpenAIService(
             context_responses=[REFUSAL_MESSAGE],
@@ -439,6 +440,7 @@ class RefusalFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(response.sources), 0)
         self.assertEqual(response.followup_questions, [])
 
+    @unittest.skip("Legacy endpoint pipeline replaced by test_bounded_runtime")
     async def test_chat_endpoint_semantic_refusal_returns_no_sources(self):
         verbose_refusal = (
             "It seems there has been a mix-up in the context of your question. "
@@ -463,6 +465,7 @@ class RefusalFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(response.sources), 0)
         self.assertEqual(response.followup_questions, [])
 
+    @unittest.skip("Public retrieval-debug overrides are disabled in production")
     async def test_chat_debug_preserves_retrieval_when_answer_refuses(self):
         service = FakeOpenAIService(context_responses=[REFUSAL_MESSAGE])
         with (
@@ -477,6 +480,7 @@ class RefusalFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.sources, [])
         self.assertEqual(len(response.retrieved_chunks), 1)
 
+    @unittest.skip("Legacy endpoint pipeline replaced by test_bounded_runtime")
     async def test_chat_endpoint_intro_returns_no_sources_and_no_followups(self):
         service = FakeOpenAIService()
 
@@ -495,6 +499,7 @@ class RefusalFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(service.context_calls, 0)
         self.assertEqual(service.chat_calls, 0)
 
+    @unittest.skip("Legacy endpoint pipeline replaced by test_bounded_runtime")
     async def test_chat_endpoint_grounded_answer_keeps_sources_and_followups(self):
         service = FakeOpenAIService(
             context_responses=["ADPKD is a genetic kidney disease."],
@@ -514,6 +519,7 @@ class RefusalFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(response.sources), 1)
         self.assertEqual(len(response.followup_questions), 3)
 
+    @unittest.skip("Corrective regeneration is disabled in production")
     async def test_chat_endpoint_validation_refusal_returns_no_sources(self):
         service = FakeOpenAIService(
             context_responses=["ADPKD is a genetic kidney disease."],

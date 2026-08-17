@@ -12,7 +12,7 @@ The evaluator deliberately keeps paper and chunk evaluation separate:
   were found.
 
 Paper-level evaluation is the default because it works with the existing
-``cysticcare_metadata.sources`` output.  Exact ``paper_id``/``chunk_id`` values
+``dialysiscare_metadata.sources`` output.  Exact ``paper_id``/``chunk_id`` values
 are preferred, but legacy ``file``, ``display_name``, ``title``, and citation
 fields are used as a conservative normalized-title fallback.
 
@@ -24,7 +24,7 @@ Example
     cd backend
     python evaluate_retrieval.py \
       --benchmark app/pipeline_results.json \
-      --predictions app/pipeline_results_with_cysticcare.json \
+      --predictions app/pipeline_results_with_dialysiscare.json \
       --k 1,3,5,10 --label-level paper \
       --output retrieval_metrics.json
 
@@ -34,7 +34,7 @@ the following ranked lists:
 
 * ``retrieved`` / ``retrieval_results`` / ``retrieved_chunks``
 * ``sources``
-* ``cysticcare_metadata.retrieved_chunks`` / ``cysticcare_metadata.sources``
+* ``dialysiscare_metadata.retrieved_chunks`` / ``dialysiscare_metadata.sources``
 
 Each item should ideally include ``paper_id`` and, for chunk evaluation,
 ``chunk_id``.  ``metadata`` objects are also inspected, which makes the module
@@ -64,11 +64,11 @@ _PREDICTION_LIST_PATHS: Tuple[Tuple[str, ...], ...] = (
     ("retrieved_chunks",),
     ("retrieval",),
     ("candidates",),
-    ("cysticcare_metadata", "retrieved_chunks"),
-    ("cysticcare_metadata", "sources"),
+    ("dialysiscare_metadata", "retrieved_chunks"),
+    ("dialysiscare_metadata", "sources"),
     ("metadata", "sources"),
     ("sources",),
-    ("cysticcare_sources",),
+    ("dialysiscare_sources",),
 )
 _PAPER_ID_KEYS = ("paper_id", "paperId", "source_paper_id", "document_paper_id")
 _CHUNK_ID_KEYS = ("chunk_id", "chunkId", "passage_id", "passageId")
@@ -492,7 +492,7 @@ def extract_retrieved_items(record: Mapping[str, Any]) -> List[RetrievedItem]:
 
     The first populated recognized field wins, so callers should provide one
     authoritative ranked list rather than a mix of candidates and final context.
-    ``cysticcare_metadata.sources`` is supported for the existing generated
+    ``dialysiscare_metadata.sources`` is supported for the existing generated
     benchmark output.
     """
     raw_items: Any = None

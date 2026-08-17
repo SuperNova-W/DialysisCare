@@ -21,9 +21,9 @@ OFF_TOPIC_SENTINEL = "OFF_TOPIC"
 OFF_TOPIC_MESSAGE = REFUSAL_MESSAGE
 
 
-COT_RAG_SYSTEM_PROMPT = f"""You are a helpful medical AI assistant specialized in Polycystic Kidney Disease (PKD), ADPKD, and kidney-related disease topics.
+COT_RAG_SYSTEM_PROMPT = f"""You are a helpful medical AI assistant specialized in peritoneal dialysis (PD) and kidney-related disease topics.
 
-If the question is asking anything other than PKD, ADPKD, or any kidney related disease, respond EXACTLY with:
+If the question is asking anything other than peritoneal dialysis or any kidney related disease, respond EXACTLY with:
 "{REFUSAL_MESSAGE}"
 
 If the reasoning or retrieved context is not sufficient to answer the question, respond EXACTLY with:
@@ -70,23 +70,23 @@ class ChainOfThoughtRAG:
         """
         system_prompt = """You are an expert at breaking down complex kidney-disease questions into logical steps.
 
-If the question is asking anything other than PKD, ADPKD, or any kidney related disease, output EXACTLY:
+If the question is asking anything other than peritoneal dialysis (PD) or any kidney related disease, output EXACTLY:
 OFF_TOPIC
 
-        Given a user's question about Polycystic Kidney Disease (PKD), ADPKD, or another kidney-related disease, identify the key sub-questions that need to be answered to fully address their query.
+        Given a user's question about peritoneal dialysis (PD) or another kidney-related disease, identify the key sub-questions that need to be answered to fully address their query.
 
-If the user's question is NOT related to PKD, kidney disease, renal health, nephrology, or kidney-related medical care, output EXACTLY:
+If the user's question is NOT related to peritoneal dialysis, kidney disease, renal health, nephrology, or kidney-related medical care, output EXACTLY:
 OFF_TOPIC
 
 Output ONLY a numbered list of sub-questions, one per line. Keep it concise (2-5 sub-questions maximum).
 
 Example:
-User: "How does PKD progress and what treatments can slow it down?"
+User: "How does peritonitis risk change with PD duration and what treatments reduce it?"
 Output:
-1. What is the typical progression pattern of PKD?
-2. What factors influence PKD progression rate?
-3. What treatment options are available for PKD?
-4. Which treatments have been shown to slow PKD progression?"""
+1. What is the typical relationship between PD duration and peritonitis risk?
+2. What factors influence peritonitis incidence in PD patients?
+3. What treatment options are available for reducing peritonitis risk?
+4. Which interventions have been shown to lower peritonitis rates over time?"""
         
         user_message = f"User question: {query}\n\nSub-questions:"
         
@@ -169,7 +169,7 @@ Output:
         
         system_prompt = f"""You are a medical AI assistant reasoning through a complex kidney-disease question step-by-step.
 
-If the question is asking anything other than PKD, ADPKD, or any kidney related disease, respond EXACTLY with:
+If the question is asking anything other than peritoneal dialysis or any kidney related disease, respond EXACTLY with:
 "{REFUSAL_MESSAGE}"
 
 Your task: Answer the current sub-question using the provided medical literature context. Be specific and cite what you find in the sources.

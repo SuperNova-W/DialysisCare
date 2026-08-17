@@ -21,9 +21,9 @@ OFF_TOPIC_SENTINEL = "OFF_TOPIC"
 OFF_TOPIC_MESSAGE = REFUSAL_MESSAGE
 
 
-STEPBACK_SYSTEM_PROMPT = f"""You are a helpful medical AI assistant specialized in Polycystic Kidney Disease (PKD), ADPKD, and kidney-related disease topics.
+STEPBACK_SYSTEM_PROMPT = f"""You are a helpful medical AI assistant specialized in peritoneal dialysis (PD) and kidney-related disease topics.
 
-If the question is asking anything other than PKD, ADPKD, or any kidney related disease, respond EXACTLY with:
+If the question is asking anything other than peritoneal dialysis or any kidney related disease, respond EXACTLY with:
 "{REFUSAL_MESSAGE}"
 
 If the retrieved context is not sufficient to answer the question, respond EXACTLY with:
@@ -51,8 +51,8 @@ class StepbackAgent:
     4. Combines context to provide comprehensive answers
     
     Example:
-    Original: "Can I take ibuprofen with tolvaptan?"
-    Stepback: "What are the general drug interactions and contraindications for vasopressin receptor antagonists?"
+    Original: "Can I use ibuprofen while I'm on peritoneal dialysis?"
+    Stepback: "What are the general medication considerations and contraindications for patients on peritoneal dialysis?"
     """
     
     def __init__(self, openai_service: OpenAIService):
@@ -77,33 +77,33 @@ class StepbackAgent:
         """
         system_prompt = """You are an expert at identifying underlying kidney-disease concepts and principles.
 
-If the question is asking anything other than PKD, ADPKD, or any kidney related disease, output EXACTLY:
+If the question is asking anything other than peritoneal dialysis (PD) or any kidney related disease, output EXACTLY:
 OFF_TOPIC
 
-Your task: Given a specific medical question about Polycystic Kidney Disease (PKD), ADPKD, or another kidney-related disease, generate a broader, more general question that captures the underlying concept or principle.
+Your task: Given a specific medical question about peritoneal dialysis (PD) or another kidney-related disease, generate a broader, more general question that captures the underlying concept or principle.
 
-If the original question is NOT related to PKD, kidney disease, renal health, nephrology, or kidney-related medical care, output EXACTLY:
+If the original question is NOT related to peritoneal dialysis, kidney disease, renal health, nephrology, or kidney-related medical care, output EXACTLY:
 OFF_TOPIC
 
 The stepback question should:
 - Be more general and conceptual than the original
 - Focus on the medical class, mechanism, or category rather than specifics
 - Help retrieve foundational medical knowledge
-- Still be relevant to PKD/kidney disease when applicable
+- Still be relevant to PD/kidney disease when applicable
 
 Examples:
 
-Original: "Can I take ibuprofen with my tolvaptan medication?"
-Stepback: "What are the drug interactions and contraindications for vasopressin receptor antagonists?"
+Original: "Can I use ibuprofen while I'm on peritoneal dialysis?"
+Stepback: "What are the general medication considerations and contraindications for patients on peritoneal dialysis?"
 
-Original: "Will eating less salt help my PKD?"
-Stepback: "How does dietary sodium intake affect kidney function and disease progression in chronic kidney disease?"
+Original: "Will eating less salt help my PD adequacy?"
+Stepback: "How does dietary sodium intake affect fluid balance and dialysis adequacy in peritoneal dialysis?"
 
-Original: "What is my risk of developing kidney stones with PKD?"
-Stepback: "What are the common complications and comorbidities associated with polycystic kidney disease?"
+Original: "What is my risk of developing peritonitis with PD?"
+Stepback: "What are the common complications and comorbidities associated with peritoneal dialysis?"
 
-Original: "Should I avoid caffeine if I have PKD?"
-Stepback: "What dietary factors and lifestyle modifications influence cyst growth and kidney function in PKD?"
+Original: "Should I avoid certain foods if I'm on PD?"
+Stepback: "What dietary factors and lifestyle modifications influence fluid balance and ultrafiltration in peritoneal dialysis?"
 
 Output ONLY the stepback question, nothing else."""
 

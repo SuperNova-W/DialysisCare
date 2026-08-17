@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import generate_cysticcare_responses as generator
+import generate_dialysiscare_responses as generator
 
 
 class _CompletedProcess:
@@ -43,8 +43,8 @@ class BenchmarkGeneratorTests(unittest.TestCase):
                 json.dumps([
                     {
                         "question": "What is ADPKD?",
-                        "cysticcare_response": "stale answer",
-                        "cysticcare_metadata": {},
+                        "dialysiscare_response": "stale answer",
+                        "dialysiscare_metadata": {},
                     }
                 ]),
                 encoding="utf-8",
@@ -58,7 +58,7 @@ class BenchmarkGeneratorTests(unittest.TestCase):
                 "retrieved_chunks": [{"id": "paper-a_0"}],
             }
             argv = [
-                "generate_cysticcare_responses.py",
+                "generate_dialysiscare_responses.py",
                 "--input",
                 str(input_path),
                 "--output",
@@ -74,9 +74,9 @@ class BenchmarkGeneratorTests(unittest.TestCase):
                 self.assertEqual(generator.main(), 0)
 
             output = json.loads(output_path.read_text(encoding="utf-8"))
-        self.assertEqual(output[0]["cysticcare_response"], "fresh answer")
+        self.assertEqual(output[0]["dialysiscare_response"], "fresh answer")
         self.assertEqual(
-            output[0]["cysticcare_metadata"]["retrieved_chunks"], [{"id": "paper-a_0"}]
+            output[0]["dialysiscare_metadata"]["retrieved_chunks"], [{"id": "paper-a_0"}]
         )
 
 

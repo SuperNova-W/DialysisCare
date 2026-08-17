@@ -198,6 +198,42 @@ class TraceAIIntegrationTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(module._is_wrapped(cot_rag_service.ChainOfThoughtRAG.retrieve_for_step))
             self.assertTrue(module._is_wrapped(stepback_agent.StepbackAgent.retrieve_with_stepback))
 
+    async def test_chat_wrapper_forwards_fastapi_request_arguments(self):
+        module = reload_traceai_module()
+        received = []
+
+        async def endpoint(request, http_request=None):
+            received.append((request, http_request))
+            return types.SimpleNamespace(
+                status="success",
+                response="answer",
+                sources=[],
+                followup_questions=[],
+                validation=None,
+            )
+
+        main_module = types.SimpleNamespace(
+            chat_endpoint=endpoint,
+            is_refusal_response=lambda response: False,
+        )
+        request = types.SimpleNamespace(
+            query="question",
+            session_id="session",
+            top_k=5,
+            temperature=0.2,
+            max_tokens=100,
+        )
+        http_request = object()
+
+        with (
+            patch.object(module, "trace_context", lambda **kwargs: fake_context(kwargs)),
+            patch.object(module, "trace_span", lambda *args, **kwargs: fake_context(kwargs)),
+        ):
+            module._patch_chat_endpoint(main_module)
+            await main_module.chat_endpoint(request, http_request=http_request)
+
+        self.assertEqual(received, [(request, http_request)])
+
     async def test_cot_and_stepback_use_wrapped_openai_rag_search(self):
         calls = []
 

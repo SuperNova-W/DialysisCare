@@ -23,7 +23,7 @@ _TRACE_STATE: Dict[str, Any] = {
     "project_type_applied": None,
     "project_version_requested": None,
     "project_version_applied": None,
-    "content_capture_enabled": True,
+    "content_capture_enabled": False,
     "last_error": None,
 }
 
@@ -52,8 +52,9 @@ def _should_enable_traceai() -> bool:
 
 
 def _content_capture_enabled() -> bool:
-    explicit_flag = _parse_bool_env("TRACEAI_CAPTURE_CONTENT")
-    return True if explicit_flag is None else explicit_flag
+    # Medical prompts and responses must never leave the provider/runtime logs.
+    # Operation metadata is emitted by usage_metrics.py instead.
+    return False
 
 
 def _refresh_status_from_env() -> None:
@@ -398,7 +399,7 @@ def _patch_chat_endpoint(main_module: Any) -> None:
         return
 
     @wraps(original)
-    async def wrapped(request: Any) -> Any:
+    async def wrapped(request: Any, *args: Any, **kwargs: Any) -> Any:
         with trace_context(
             session_id=getattr(request, "session_id", None),
             metadata=_request_metadata("/chat", request),
@@ -415,7 +416,7 @@ def _patch_chat_endpoint(main_module: Any) -> None:
                     "rag.max_tokens": getattr(request, "max_tokens", None),
                 },
             ) as request_span:
-                response = await original(request)
+                response = await original(request, *args, **kwargs)
 
                 response_text = getattr(response, "response", "")
                 sources = getattr(response, "sources", []) or []

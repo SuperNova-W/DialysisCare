@@ -126,7 +126,7 @@ class TestRetrievalEvaluation(unittest.TestCase):
         benchmark["supporting_passages"] = []
         prediction = {
             "id": "q1",
-            "cysticcare_metadata": {
+            "dialysiscare_metadata": {
                 "sources": [
                     {
                         "file": "A Landmark PKD Paper",
@@ -156,7 +156,7 @@ class TestRetrievalEvaluation(unittest.TestCase):
     def test_nested_retrieved_chunks_take_priority_over_display_sources(self):
         prediction = {
             "id": "q1",
-            "cysticcare_metadata": {
+            "dialysiscare_metadata": {
                 "retrieved_chunks": [{"paper_id": "paper-a", "chunk_id": "paper-a_3"}],
                 "sources": [{"paper_id": "not-relevant"}],
             },
@@ -187,7 +187,7 @@ class TestRetrievalEvaluation(unittest.TestCase):
         }
         prediction = {
             "id": "legacy-q",
-            "cysticcare_sources": "1. A Legacy Paper (rel=0.9841)",
+            "dialysiscare_sources": "1. A Legacy Paper (rel=0.9841)",
         }
 
         labels = extract_gold_labels(benchmark)

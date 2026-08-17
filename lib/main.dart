@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'services/backend_api.dart';
 import 'theme.dart';
 import 'utils/close_app.dart';
@@ -15,7 +18,7 @@ class DialysisCareApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'DialysisCare - AI Support for Polycystic Kidney Disease',
+      title: 'DialysisCare - PD Evidence Tutor',
       theme: buildBrandTheme(),
       home: const ChatScreen(),
       debugShowCheckedModeBanner: false,
@@ -24,10 +27,10 @@ class DialysisCareApp extends StatelessWidget {
 }
 
 class ChatMessage {
-  final String content;
+  String content;
   final bool isUser;
   final DateTime timestamp;
-  final ValidationInfo? validation;
+  ValidationInfo? validation;
 
   ChatMessage({
     required this.content,
@@ -54,6 +57,9 @@ class _ChatScreenState extends State<ChatScreen> {
   final BackendApi _api = BackendApi();
   bool _isSessionInitialized = false;
   bool _isLoading = false;
+  bool _isRequestActive = false;
+  int _requestEpoch = 0;
+  String? _currentStatus;
   String? _sessionId;
   String? _error;
   bool _disclaimerAccepted = false;
@@ -61,33 +67,33 @@ class _ChatScreenState extends State<ChatScreen> {
 
   static const List<QuickTopic> quickTopics = [
     (
-      question: "What is Polycystic Kidney Disease?",
-      tag: 'BASICS',
+      question: "Explain the pathophysiology of peritoneal ultrafiltration.",
+      tag: 'PATHOPHYSIOLOGY',
       color: Brand.accentBlue,
     ),
     (
-      question: "What are the symptoms of PKD?",
-      tag: 'SYMPTOMS',
-      color: Brand.accentOrange,
-    ),
-    (
-      question: "How is PKD diagnosed?",
-      tag: 'DIAGNOSIS',
+      question: "Compare CAPD and automated peritoneal dialysis (APD).",
+      tag: 'MODALITIES',
       color: Brand.accentPurple,
     ),
     (
-      question: "What treatment options are available?",
-      tag: 'TREATMENT',
-      color: Brand.greenMid,
+      question: "How is peritonitis diagnosed in PD patients?",
+      tag: 'DIAGNOSIS',
+      color: Brand.accentOrange,
     ),
     (
-      question: "How can I manage PKD symptoms?",
-      tag: 'MANAGEMENT',
+      question: "How is peritoneal dialysis adequacy (Kt/V) assessed?",
+      tag: 'ADEQUACY',
       color: Brand.accentPink,
     ),
     (
-      question: "What lifestyle changes can help with PKD?",
-      tag: 'LIFESTYLE',
+      question: "Summarize evidence-based peritoneal dialysis management.",
+      tag: 'MANAGEMENT',
+      color: Brand.greenMid,
+    ),
+    (
+      question: "Review catheter-related and metabolic complications.",
+      tag: 'COMPLICATIONS',
       color: Brand.teal,
     ),
   ];
@@ -127,7 +133,7 @@ class _ChatScreenState extends State<ChatScreen> {
             constraints: const BoxConstraints(maxWidth: 440),
             child: const SingleChildScrollView(
               child: Text(
-                'The information contained in this website is not intended to serve as a replacement for professional medical advice. Any use of the information in this website is at the reader\'s discretion. The author and publisher specifically disclaim any and all liability arising directly or indirectly from the use or application of any information contained in this website. A health care professional should be consulted regarding your specific situation.',
+                'DialysisCare is an educational study aid for peritoneal dialysis learners. It does not replace course materials, clinical guidelines, faculty instruction, or professional medical judgment. Do not use generated answers to diagnose or treat a patient. Verify important claims against the cited literature and current guidance.',
               ),
             ),
           ),
@@ -176,7 +182,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
       // Add welcome message
       _addMessage(
-        "Welcome to DialysisCare! I'm connected to the knowledge base on PKD and ready to help. What would you like to know?",
+        "Welcome. I can help you study peritoneal dialysis using the indexed medical literature. Ask about mechanisms, modalities, diagnosis, adequacy, management, or complications.",
         isUser: false,
       );
     } catch (e) {
@@ -220,6 +226,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _sendMessage(String text) async {
     if (text.trim().isEmpty) return;
+    if (_isRequestActive) return;
     if (!_isSessionInitialized || _sessionId == null) {
       setState(() => _error = 'Session is not initialized yet.');
       return;
@@ -230,59 +237,170 @@ class _ChatScreenState extends State<ChatScreen> {
 
     setState(() {
       _isLoading = true;
+      _isRequestActive = true;
+      _currentStatus = 'Opening the evidence stream…';
       _error = null;
       _followupQuestions = [];
     });
 
-    try {
-      final reply = await _api.chat(sessionId: _sessionId!, message: text);
+    final requestEpoch = ++_requestEpoch;
+    ChatMessage? activeBotMessage;
+    var sourceTitles = <String>[];
+    var sourceCitations = <String>[];
+    final pendingChunks = <String>[];
+    Timer? paintTimer;
+
+    void flushBufferedChunks() {
+      paintTimer?.cancel();
+      paintTimer = null;
+      if (!mounted ||
+          requestEpoch != _requestEpoch ||
+          activeBotMessage == null ||
+          pendingChunks.isEmpty) {
+        return;
+      }
+      final textToPaint = pendingChunks.join();
+      pendingChunks.clear();
       setState(() {
+        activeBotMessage!.content += textToPaint;
         _isLoading = false;
-        _followupQuestions = reply.followupQuestions;
       });
+      _scrollToBottom();
+    }
 
-      String response = reply.response;
-      // Append sources/citations if available
-      if (reply.sourceCitations.isNotEmpty) {
-        response = '$response\n\n━━━━━━━━━━━━━━━━\n📚 Sources:\n\n';
-        for (int i = 0; i < reply.sourceCitations.length; i++) {
-          final authorYear = reply.sourceCitations[i];
-          final title = i < reply.sourceTitles.length
-              ? reply.sourceTitles[i]
-              : '';
+    void queueChunk(String chunk) {
+      if (activeBotMessage == null) {
+        activeBotMessage = ChatMessage(
+          content: chunk,
+          isUser: false,
+          timestamp: DateTime.now(),
+        );
+        setState(() {
+          _messages.add(activeBotMessage!);
+          _isLoading = false;
+        });
+        _scrollToBottom();
+        return;
+      }
+      pendingChunks.add(chunk);
+      paintTimer ??= Timer(
+        const Duration(milliseconds: 48),
+        flushBufferedChunks,
+      );
+    }
 
-          // Clean, professional format: [1] Author (Year): Title
-          response += '[${i + 1}] $authorYear';
-          if (title.isNotEmpty && title != 'Unknown') {
-            response += ':\n    "$title"';
-          }
-          response += '\n\n';
+    try {
+      final stream = _api.chatStream(
+        sessionId: _sessionId!,
+        message: text.trim(),
+      );
+
+      await for (final event in stream) {
+        if (!mounted || requestEpoch != _requestEpoch) break;
+        switch (event.type) {
+          case ChatStreamEventType.status:
+            setState(() {
+              _currentStatus = event.status;
+              if (activeBotMessage != null) _isLoading = true;
+            });
+            _scrollToBottom();
+            break;
+          case ChatStreamEventType.sources:
+            sourceTitles = event.sourceTitles ?? sourceTitles;
+            sourceCitations = event.sourceCitations ?? sourceCitations;
+            break;
+          case ChatStreamEventType.chunk:
+            final chunk = event.chunk;
+            if (chunk != null && chunk.isNotEmpty) queueChunk(chunk);
+            break;
+          case ChatStreamEventType.followup:
+            setState(() {
+              _followupQuestions = event.followupQuestions ?? const [];
+            });
+            break;
+          case ChatStreamEventType.validation:
+            flushBufferedChunks();
+            setState(() {
+              if (activeBotMessage != null) {
+                final corrected = event.validationText;
+                if (corrected != null && corrected.isNotEmpty) {
+                  activeBotMessage!.content = corrected;
+                }
+                activeBotMessage!.validation = event.validation;
+              }
+            });
+            break;
+          case ChatStreamEventType.error:
+            setState(() {
+              _error = 'The response stream stopped: ${event.error}';
+            });
+            break;
+          case ChatStreamEventType.done:
+            break;
         }
       }
-      _addMessage(response, isUser: false, validation: reply.validation);
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-        _error = 'Failed to send message: $e';
-      });
+
+      flushBufferedChunks();
+      if (!mounted || requestEpoch != _requestEpoch) return;
+
+      if (activeBotMessage != null && sourceCitations.isNotEmpty) {
+        final sources = StringBuffer('\n\n---\n\n### Sources\n');
+        for (var index = 0; index < sourceCitations.length; index++) {
+          final title = index < sourceTitles.length ? sourceTitles[index] : '';
+          sources.write('\n${index + 1}. ${sourceCitations[index]}');
+          if (title.isNotEmpty && title != 'Unknown') {
+            sources.write('  \n   *$title*');
+          }
+          sources.write('\n');
+        }
+        setState(() {
+          activeBotMessage!.content += sources.toString();
+        });
+        _scrollToBottom();
+      }
+    } catch (error) {
+      if (mounted && requestEpoch == _requestEpoch) {
+        setState(() {
+          _error = 'Failed to stream the response: $error';
+        });
+      }
+    } finally {
+      paintTimer?.cancel();
+      if (mounted && requestEpoch == _requestEpoch) {
+        setState(() {
+          _isRequestActive = false;
+          _isLoading = false;
+          _currentStatus = null;
+        });
+      }
     }
   }
 
   void _clearChat() {
+    _requestEpoch++;
     setState(() {
       _messages.clear();
+      _isLoading = false;
+      _isRequestActive = false;
+      _currentStatus = null;
+      _followupQuestions = [];
     });
     _addMessage(
-      "Chat history cleared. How can I help you with PKD-related questions?",
+      "Chat cleared. Start a new peritoneal dialysis learning question when you're ready.",
       isUser: false,
     );
   }
 
   void _resetSession() {
+    _requestEpoch++;
     setState(() {
       _messages.clear();
       _isSessionInitialized = false;
       _sessionId = null;
+      _isLoading = false;
+      _isRequestActive = false;
+      _currentStatus = null;
+      _followupQuestions = [];
     });
     _initializeSession();
   }
@@ -333,63 +451,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   PreferredSizeWidget _buildAppBar() {
-    return AppBar(
-      title: const BrandLockup(),
-      actions: [
-        Padding(
-          padding: const EdgeInsets.only(right: 16),
-          child: _buildStatusPill(),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatusPill() {
-    final Color bg;
-    final Color fg;
-    final String label;
-    final Widget leading;
-
-    if (_isSessionInitialized) {
-      bg = Brand.greenSoft;
-      fg = Brand.greenDark;
-      label = 'Connected';
-      leading = const PulsingDot(color: Brand.greenMid, size: 7);
-    } else if (_isLoading) {
-      bg = Brand.surfaceSoft;
-      fg = Brand.steel;
-      label = 'Connecting…';
-      leading = const SizedBox(
-        width: 12,
-        height: 12,
-        child: CircularProgressIndicator(strokeWidth: 2, color: Brand.steel),
-      );
-    } else {
-      bg = Brand.warningBg;
-      fg = Brand.warningText;
-      label = 'Offline';
-      leading = const Icon(Icons.cloud_off, size: 13, color: Brand.warningText);
-    }
-
-    return AnimatedSwitcher(
-      duration: Brand.smooth,
-      child: Container(
-        key: ValueKey(label),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(999),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            leading,
-            const SizedBox(width: 6),
-            Text(label, style: brandText(12, FontWeight.w600, 1.3, color: fg)),
-          ],
-        ),
-      ),
-    );
+    return AppBar(title: const BrandLockup());
   }
 
   Widget _buildPromoBanner() {
@@ -408,7 +470,7 @@ class _ChatScreenState extends State<ChatScreen> {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                'General information only — always consult your healthcare provider for medical decisions.',
+                'EDUCATION MODE  •  Literature-grounded answers  •  Not for clinical decision-making',
                 style: brandText(13, FontWeight.w500, 1.4, color: Brand.onDark),
               ),
             ),
@@ -529,7 +591,7 @@ class _ChatScreenState extends State<ChatScreen> {
             iconColor: Brand.greenDark,
             collapsedIconColor: Brand.steel,
             title: Text(
-              'About DialysisCare',
+              'Learning scope',
               style: brandText(15, FontWeight.w600, 1.4),
             ),
             initiallyExpanded: false,
@@ -540,20 +602,20 @@ class _ChatScreenState extends State<ChatScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'DialysisCare is an AI-powered support agent designed to help patients with Polycystic Kidney Disease (PKD).',
+                      'DialysisCare is an evidence-guided study assistant for medical students learning about peritoneal dialysis.',
                       style: brandText(15, FontWeight.w500, 1.55),
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'What you can ask:',
+                      'Designed for review of:',
                       style: brandText(14, FontWeight.w600, 1.5),
                     ),
                     const SizedBox(height: 4),
                     ...const [
-                      'Questions about PKD symptoms and management',
-                      'Treatment options and lifestyle recommendations',
-                      'Support and guidance for living with PKD',
-                      'General information about kidney health',
+                      'Peritoneal membrane physiology and mechanisms',
+                      'Diagnostic criteria and differential diagnosis',
+                      'Adequacy, complications, and risk management',
+                      'Management principles and supporting evidence',
                     ].map(
                       (item) => Padding(
                         padding: const EdgeInsets.symmetric(vertical: 2),
@@ -602,7 +664,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              'Important: This AI assistant provides general information and support. Always consult with your healthcare provider for medical advice and treatment decisions.',
+                              'Educational use only. Verify high-stakes claims against current guidelines, primary literature, and faculty instruction.',
                               style: brandText(
                                 13,
                                 FontWeight.w500,
@@ -717,7 +779,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildQuickQuestionCard(QuickTopic topic) {
     return ScaleTap(
-      onTap: () => _sendMessage(topic.question),
+      onTap: _isRequestActive ? null : () => _sendMessage(topic.question),
       child: HoverLift(
         child: Container(
           padding: const EdgeInsets.all(20),
@@ -730,10 +792,7 @@ class _ChatScreenState extends State<ChatScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 2,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
                   color: topic.color,
                   borderRadius: BorderRadius.circular(4),
@@ -803,6 +862,23 @@ class _ChatScreenState extends State<ChatScreen> {
                     ? CrossAxisAlignment.end
                     : CrossAxisAlignment.start,
                 children: [
+                  Padding(
+                    padding: const EdgeInsets.only(
+                      left: 2,
+                      right: 2,
+                      bottom: 5,
+                    ),
+                    child: Text(
+                      isUser ? 'YOU' : 'PD EVIDENCE TUTOR',
+                      style: brandText(
+                        10,
+                        FontWeight.w700,
+                        1.3,
+                        spacing: 0.9,
+                        color: Brand.stone,
+                      ),
+                    ),
+                  ),
                   Container(
                     constraints: const BoxConstraints(maxWidth: 640),
                     padding: const EdgeInsets.symmetric(
@@ -811,9 +887,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                     decoration: BoxDecoration(
                       color: isUser ? Brand.tealDeep : Brand.surface,
-                      border: isUser
-                          ? null
-                          : Border.all(color: Brand.hairline),
+                      border: isUser ? null : Border.all(color: Brand.hairline),
                       borderRadius: BorderRadius.only(
                         topLeft: const Radius.circular(16),
                         topRight: const Radius.circular(16),
@@ -821,15 +895,21 @@ class _ChatScreenState extends State<ChatScreen> {
                         bottomRight: Radius.circular(isUser ? 4 : 16),
                       ),
                     ),
-                    child: Text(
-                      message.content,
-                      style: brandText(
-                        15,
-                        FontWeight.w400,
-                        1.55,
-                        color: isUser ? Brand.onDark : Brand.ink,
-                      ),
-                    ),
+                    child: isUser
+                        ? Text(
+                            message.content,
+                            style: brandText(
+                              15,
+                              FontWeight.w400,
+                              1.55,
+                              color: Brand.onDark,
+                            ),
+                          )
+                        : MarkdownBody(
+                            data: message.content,
+                            selectable: true,
+                            styleSheet: _assistantMarkdownStyle(context),
+                          ),
                   ),
                   if (!isUser && message.validation != null)
                     _buildValidationBadge(message.validation!),
@@ -852,6 +932,45 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  MarkdownStyleSheet _assistantMarkdownStyle(BuildContext context) {
+    final body = brandText(15, FontWeight.w400, 1.62, color: Brand.ink);
+    return MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+      p: body,
+      a: brandText(15, FontWeight.w600, 1.62, color: Brand.greenDark),
+      strong: brandText(15, FontWeight.w700, 1.62, color: Brand.ink),
+      em: body.copyWith(fontStyle: FontStyle.italic),
+      h1: brandText(22, FontWeight.w700, 1.35, color: Brand.ink),
+      h2: brandText(19, FontWeight.w700, 1.4, color: Brand.ink),
+      h3: brandText(17, FontWeight.w700, 1.45, color: Brand.ink),
+      h4: brandText(15, FontWeight.w700, 1.5, color: Brand.ink),
+      listBullet: body,
+      blockquote: body.copyWith(color: Brand.slate),
+      blockquoteDecoration: const BoxDecoration(
+        color: Brand.surfaceSoft,
+        border: Border(left: BorderSide(color: Brand.greenMid, width: 3)),
+      ),
+      code: brandText(
+        13,
+        FontWeight.w500,
+        1.5,
+        color: Brand.tealDeep,
+      ).copyWith(backgroundColor: Brand.surfaceSoft),
+      codeblockDecoration: BoxDecoration(
+        color: Brand.surfaceSoft,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Brand.hairline),
+      ),
+      horizontalRuleDecoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: Brand.hairline)),
+      ),
+      tableBorder: TableBorder.all(color: Brand.hairline),
+      tableHead: brandText(13, FontWeight.w700, 1.45, color: Brand.ink),
+      tableBody: brandText(13, FontWeight.w400, 1.45, color: Brand.slate),
+      blockSpacing: 12,
+      listIndent: 22,
     );
   }
 
@@ -894,7 +1013,10 @@ class _ChatScreenState extends State<ChatScreen> {
             children: [
               Icon(badgeIcon, size: 14, color: fg),
               const SizedBox(width: 4),
-              Text(label, style: brandText(12, FontWeight.w600, 1.4, color: fg)),
+              Text(
+                label,
+                style: brandText(12, FontWeight.w600, 1.4, color: fg),
+              ),
               if (validation.wasRegenerated) ...[
                 const SizedBox(width: 4),
                 Icon(Icons.autorenew, size: 12, color: fg),
@@ -1144,10 +1266,8 @@ class _ChatScreenState extends State<ChatScreen> {
             _buildAssistantAvatar(),
             const SizedBox(width: 10),
             Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 18,
-                vertical: 16,
-              ),
+              constraints: const BoxConstraints(maxWidth: 520),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
               decoration: BoxDecoration(
                 color: Brand.surface,
                 border: Border.all(color: Brand.hairline),
@@ -1158,7 +1278,24 @@ class _ChatScreenState extends State<ChatScreen> {
                   bottomRight: Radius.circular(16),
                 ),
               ),
-              child: const TypingDots(),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const TypingDots(),
+                  const SizedBox(width: 12),
+                  Flexible(
+                    child: Text(
+                      _currentStatus ?? 'Reviewing the evidence…',
+                      style: brandText(
+                        13,
+                        FontWeight.w500,
+                        1.4,
+                        color: Brand.steel,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -1199,7 +1336,9 @@ class _ChatScreenState extends State<ChatScreen> {
                     offset: const Offset(0, 8),
                     child: ActionChip(
                       label: Text(_followupQuestions[i]),
-                      onPressed: () => _sendMessage(_followupQuestions[i]),
+                      onPressed: _isRequestActive
+                          ? null
+                          : () => _sendMessage(_followupQuestions[i]),
                     ),
                   ),
               ],
@@ -1218,24 +1357,34 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
       child: _constrain(
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: TextField(
-                controller: _textController,
-                decoration: const InputDecoration(
-                  hintText: 'Ask about Polycystic Kidney Disease…',
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _textController,
+                    decoration: const InputDecoration(
+                      hintText: 'Ask a peritoneal dialysis clinical science question…',
+                    ),
+                    style: brandText(15, FontWeight.w400, 1.5),
+                    minLines: 1,
+                    maxLines: 5,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: _isRequestActive ? null : _sendMessage,
+                  ),
                 ),
-                style: brandText(15, FontWeight.w400, 1.5),
-                minLines: 1,
-                maxLines: 5,
-                textInputAction: TextInputAction.send,
-                onSubmitted: _sendMessage,
-              ),
+                const SizedBox(width: 12),
+                _buildSendButton(),
+              ],
             ),
-            const SizedBox(width: 12),
-            _buildSendButton(),
+            const SizedBox(height: 7),
+            Text(
+              'Study aid · Review cited sources before relying on an answer',
+              style: brandText(11, FontWeight.w400, 1.3, color: Brand.stone),
+            ),
           ],
         ),
       ),
@@ -1246,7 +1395,10 @@ class _ChatScreenState extends State<ChatScreen> {
     return ValueListenableBuilder<TextEditingValue>(
       valueListenable: _textController,
       builder: (context, value, _) {
-        final hasText = value.text.trim().isNotEmpty;
+        final hasText =
+            value.text.trim().isNotEmpty &&
+            !_isRequestActive &&
+            _isSessionInitialized;
         return ScaleTap(
           onTap: hasText ? () => _sendMessage(_textController.text) : null,
           child: AnimatedContainer(
@@ -1306,10 +1458,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           const SizedBox(height: 8),
           ListTile(
-            leading: const Icon(
-              Icons.delete_outline,
-              color: Brand.onDarkMuted,
-            ),
+            leading: const Icon(Icons.delete_outline, color: Brand.onDarkMuted),
             title: Text(
               'Clear chat history',
               style: brandText(14, FontWeight.w500, 1.4, color: Brand.onDark),
@@ -1362,12 +1511,7 @@ class _ChatScreenState extends State<ChatScreen> {
               minLeadingWidth: 16,
               title: Text(
                 topic.question,
-                style: brandText(
-                  14,
-                  FontWeight.w400,
-                  1.4,
-                  color: Brand.onDark,
-                ),
+                style: brandText(14, FontWeight.w400, 1.4, color: Brand.onDark),
               ),
               hoverColor: Colors.white.withValues(alpha: 0.06),
               onTap: () {
@@ -1396,7 +1540,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'This AI assistant provides general information only. Always consult healthcare professionals for medical advice.',
+                      'Educational study aid only. Confirm clinical details with current guidelines and supervising faculty.',
                       style: brandText(
                         12,
                         FontWeight.w400,
@@ -1416,6 +1560,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    _requestEpoch++;
     _textController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -1451,7 +1596,7 @@ class _HeroCard extends StatelessWidget {
               border: Border.all(color: Brand.hairlineDark),
             ),
             child: Text(
-              'AI-POWERED PKD SUPPORT',
+              'KIDNEY MEDICINE  •  PD',
               style: brandText(
                 11,
                 FontWeight.w600,
@@ -1463,7 +1608,7 @@ class _HeroCard extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           Text(
-            'Answers grounded in\npublished PKD research.',
+            'Build clinical understanding\nfrom published PD evidence.',
             style: brandText(
               28,
               FontWeight.w500,
@@ -1474,7 +1619,7 @@ class _HeroCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            'Ask anything about Polycystic Kidney Disease — every answer is checked for relevance, sources, and safety.',
+            'Explore pathophysiology, genetics, diagnosis, progression, management, and complications with source-linked answers.',
             style: brandText(
               15,
               FontWeight.w400,

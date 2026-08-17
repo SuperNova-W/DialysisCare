@@ -44,8 +44,8 @@ Evaluation criteria:
 Output ONLY valid JSON (no markdown, no extra text):
 {{"score": 0.85, "reason": "Brief explanation of the rating"}}"""
 
-CORRECTIVE_SYSTEM_PROMPT = """You are a helpful medical AI assistant specialized in PKD, ADPKD, and kidney-disease topics.
-If the question is asking anything other than PKD, ADPKD, or any kidney related disease, then don't answer.
+CORRECTIVE_SYSTEM_PROMPT = """You are a helpful medical AI assistant specialized in peritoneal dialysis (PD) and kidney-disease topics.
+If the question is asking anything other than peritoneal dialysis or any kidney related disease, then don't answer.
 
 Your previous answer had quality issues that need to be corrected. Generate an improved answer that fixes the identified problems.
 
@@ -345,15 +345,17 @@ class ValidationAgent:
             details.append("Contains potentially dangerous absolute medical advice")
 
         # Check it's not obviously off-topic (simple heuristic)
-        pkd_keywords = [
-            "pkd", "adpkd", "arpkd", "polycystic", "kidney", "renal", "cyst",
-            "tolvaptan", "nephro", "gfr", "egfr", "ckd", "dialysis",
-            "transplant", "creatinine", "proteinuria", "albuminuria", "hematuria",
+        pd_keywords = [
+            "pd", "peritoneal dialysis", "capd", "apd", "ccpd", "nipd",
+            "peritonitis", "peritoneal membrane", "dialysate", "icodextrin",
+            "ultrafiltration", "kt/v", "kidney", "renal", "nephro", "gfr",
+            "egfr", "ckd", "dialysis", "transplant", "creatinine",
+            "proteinuria", "albuminuria", "hematuria",
         ]
-        has_pkd_content = any(kw in answer_lower for kw in pkd_keywords)
-        if not has_pkd_content:
+        has_pd_content = any(kw in answer_lower for kw in pd_keywords)
+        if not has_pd_content:
             score -= 0.2
-            details.append("Answer may not be sufficiently focused on PKD/kidney topics")
+            details.append("Answer may not be sufficiently focused on PD/kidney topics")
 
         score = max(0.0, min(1.0, score))
 

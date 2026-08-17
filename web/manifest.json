@@ -3,9 +3,9 @@
     "short_name": "DialysisCare",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#FBFCFE",
+    "theme_color": "#0B6F73",
+    "description": "An evidence-guided study aid for learners in kidney medicine, with answers grounded in the published peritoneal dialysis literature.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

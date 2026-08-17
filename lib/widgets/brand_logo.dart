@@ -1,12 +1,8 @@
 import 'package:flutter/material.dart';
 import '../theme.dart';
 
-/// The DialysisCare brand mark — the mascot logo rendered as a rounded
-/// (or circular) chip.
-///
-/// Mirrors the `.mark` in the design system's `guidelines/brand-logo.card.html`:
-/// a square image at `--radius-md` (10px), `object-fit: cover`, with a branded
-/// icon fallback if `assets/images/logo.png` fails to load.
+/// The DialysisCare brand mark — a clinical education symbol rendered as a
+/// rounded (or circular) chip.
 ///
 /// Use the default constructor for the squared mark (app-bar mark r10, drawer
 /// header r12, session-loading pulse r16) and [BrandLogo.circle] for the
@@ -16,14 +12,14 @@ class BrandLogo extends StatelessWidget {
     super.key,
     this.size = 36,
     this.radius = 10,
-    this.fallbackIcon = Icons.medical_services,
+    this.fallbackIcon = Icons.biotech_outlined,
   }) : circle = false;
 
   /// Circular variant used for the assistant avatar.
   const BrandLogo.circle({
     super.key,
     this.size = 36,
-    this.fallbackIcon = Icons.smart_toy,
+    this.fallbackIcon = Icons.school_outlined,
   }) : radius = 0,
        circle = true;
 
@@ -36,45 +32,37 @@ class BrandLogo extends StatelessWidget {
   /// When true the mark is clipped to a perfect circle (avatar treatment).
   final bool circle;
 
-  /// Icon shown on the branded fallback tile if the logo asset is missing.
+  /// Icon shown inside the branded mark.
   final IconData fallbackIcon;
 
   @override
   Widget build(BuildContext context) {
-    final image = Image.asset(
-      'assets/images/logo.png',
+    final mark = Container(
       width: size,
       height: size,
-      fit: BoxFit.cover,
-      errorBuilder: (context, error, stackTrace) => Container(
-        width: size,
-        height: size,
-        color: Brand.tealDeep,
-        alignment: Alignment.center,
-        child: Icon(fallbackIcon, color: Brand.green, size: size * 0.52),
+      alignment: Alignment.center,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Brand.greenDark, Brand.tealDeep],
+        ),
       ),
+      child: Icon(fallbackIcon, color: Brand.onDark, size: size * 0.52),
     );
 
     return SizedBox(
       width: size,
       height: size,
       child: circle
-          ? ClipOval(child: image)
-          : ClipRRect(
-              borderRadius: BorderRadius.circular(radius),
-              child: image,
-            ),
+          ? ClipOval(child: mark)
+          : ClipRRect(borderRadius: BorderRadius.circular(radius), child: mark),
     );
   }
 }
 
 /// The DialysisCare logo lockup — the [BrandLogo] mark paired with the
-/// "DialysisCare" wordmark and "AI Support for PKD" tagline.
-///
-/// Mirrors the lockup in `guidelines/brand-logo.card.html`: an 18px / w600 /
-/// -0.3px name over a 12px steel sub-label, which flips to white / on-dark-muted
-/// on dark surfaces ([onDark]). Defaults reproduce the card's specimen; the
-/// drawer header overrides the sizes for its larger vertical treatment.
+/// "DialysisCare" wordmark and evidence-tutor tagline.
 class BrandLockup extends StatelessWidget {
   const BrandLockup({
     super.key,
@@ -89,7 +77,7 @@ class BrandLockup extends StatelessWidget {
     this.gap = 12,
   });
 
-  /// Flip text colors for navy surfaces (app-bar stays light, drawer is dark).
+  /// Flip text colors for navy surfaces (app bar stays light, drawer is dark).
   final bool onDark;
 
   /// Lay the mark beside the text (app bar) or above it (drawer header).
@@ -127,7 +115,7 @@ class BrandLockup extends StatelessWidget {
         ),
         SizedBox(height: isRow ? 0 : 4),
         Text(
-          'AI Support for PKD',
+          'PD Evidence Tutor',
           style: brandText(subSize, FontWeight.w400, 1.3, color: subColor),
         ),
       ],
@@ -138,13 +126,21 @@ class BrandLockup extends StatelessWidget {
     if (isRow) {
       return Row(
         mainAxisSize: MainAxisSize.min,
-        children: [mark, SizedBox(width: gap), text],
+        children: [
+          mark,
+          SizedBox(width: gap),
+          text,
+        ],
       );
     }
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: [mark, SizedBox(height: gap), text],
+      children: [
+        mark,
+        SizedBox(height: gap),
+        text,
+      ],
     );
   }
 }

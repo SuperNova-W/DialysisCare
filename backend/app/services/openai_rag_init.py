@@ -3,6 +3,7 @@ OpenAI RAG Initialization Module
 Handles PDF processing and ChromaDB integration for the OpenAI pipeline
 """
 
+import asyncio
 import os
 import logging
 from typing import List, Dict, Any, Mapping, Optional
@@ -23,9 +24,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-STANDARD_RAG_SYSTEM_PROMPT = f"""You are a helpful medical AI assistant specialized in Polycystic Kidney Disease (PKD), ADPKD, and kidney-related disease topics.
+STANDARD_RAG_SYSTEM_PROMPT = f"""You are a helpful medical AI assistant specialized in peritoneal dialysis (PD) and kidney-related disease topics.
 
-If the question is asking anything other than PKD, ADPKD, or any kidney related disease, respond EXACTLY with:
+If the question is asking anything other than peritoneal dialysis or any kidney related disease, respond EXACTLY with:
 "{REFUSAL_MESSAGE}"
 
 If the provided context does not contain enough relevant information to answer the question, respond EXACTLY with:
@@ -50,7 +51,7 @@ openai_service: Optional[OpenAIService] = None
 openai_helper_service: Optional[OpenAIService] = None
 
 EMPTY_KNOWLEDGE_BASE_MESSAGE = (
-    "I don't have any indexed PKD or ADPKD source documents loaded right now, "
+    "I don't have any indexed peritoneal dialysis source documents loaded right now, "
     "so I can't provide a sourced answer yet."
 )
 
@@ -101,28 +102,28 @@ def _resolve_pdf_directory(pdf_directory: str) -> str:
     return os.path.join(app_root, pdf_directory)
 
 
-async def initialize_openai_rag_system(
+async def build_openai_rag_system(
     pdf_directory: str = "papers",
     collection_name: str = "pkd_knowledge_base_openai"
 ) -> Dict[str, Any]:
     """
-    Initialize the OpenAI RAG system:
+    Offline-only vector database build:
     1. Load PDFs
     2. Extract and chunk text
     3. Generate OpenAI embeddings
     4. Store in ChromaDB
-    
+
     Args:
         pdf_directory: Directory containing PDFs
         collection_name: Name for ChromaDB collection
-        
+
     Returns:
         Initialization status dictionary
     """
     global openai_chroma_client, openai_collection, openai_service
-    
+
     try:
-        logger.info("Starting OpenAI RAG system initialization...")
+        logger.info("Starting offline OpenAI vector database build...")
 
         config = load_session_config()
 
@@ -235,7 +236,8 @@ async def initialize_openai_rag_system(
                 # Build Hybrid Retriever BM25 sparse index
                 try:
                     from .hybrid_retriever import HybridRetriever
-                    HybridRetriever(openai_collection)
+                    import asyncio
+                    await asyncio.to_thread(HybridRetriever, openai_collection)
                 except Exception as hr_err:
                     logger.error(f"Failed to build Hybrid Retriever on startup: {hr_err}")
 
@@ -268,9 +270,9 @@ async def initialize_openai_rag_system(
                 "documents_processed": 0,
                 "chunks_created": 0
             }
-        
+
         pdf_files = get_pdf_files(pdf_directory)
-        
+
         if not pdf_files:
             logger.warning(f"No PDF files found in {pdf_directory}")
             return {
@@ -280,18 +282,18 @@ async def initialize_openai_rag_system(
                 "chunks_created": 0,
                 "total_vectors": openai_collection.count() if openai_collection is not None else 0,
             }
-        
+
         logger.info(f"Processing {len(pdf_files)} PDF files...")
-        
+
         metadata_manager = get_metadata_manager()
-        
+
         all_chunks = []
         all_metadatas = []
         all_ids = []
         total_chunks = 0
         indexed_documents = 0
         seen_paper_ids: Dict[str, str] = {}
-        
+
         for pdf_file in pdf_files:
             try:
                 # Preserve document structure alongside each chunk. The legacy
@@ -315,7 +317,7 @@ async def initialize_openai_rag_system(
                     continue
                 seen_paper_ids[paper_id] = pdf_file
                 indexed_documents += 1
-                
+
                 paper_chunks = []
                 paper_metadatas = []
                 paper_ids = []
@@ -424,7 +426,7 @@ async def initialize_openai_rag_system(
             except Exception as e:
                 logger.error(f"✗ Error processing {pdf_file}: {e}")
                 continue
-        
+
         if not all_chunks:
             logger.warning("No chunks created from PDF files")
             return {
@@ -433,10 +435,10 @@ async def initialize_openai_rag_system(
                 "documents_processed": len(pdf_files),
                 "chunks_created": 0
             }
-        
+
         logger.info(f"Generating OpenAI embeddings for {len(all_chunks)} chunks...")
         embeddings = openai_service.get_embeddings_batch(all_chunks, batch_size=100)
-        
+
         if len(embeddings) != len(all_chunks):
             logger.error(f"Embedding count mismatch: got {len(embeddings)}, expected {len(all_chunks)}")
             return {
@@ -445,7 +447,7 @@ async def initialize_openai_rag_system(
                 "documents_processed": len(pdf_files),
                 "chunks_created": 0
             }
-        
+
         logger.info("Storing embeddings and documents in ChromaDB...")
         chroma_batch_size = 5000
         for i in range(0, len(all_chunks), chroma_batch_size):
@@ -497,14 +499,14 @@ async def initialize_openai_rag_system(
                 "requires_rebuild": True,
             }
         logger.info(f"✓ Successfully stored {len(all_chunks)} chunks in ChromaDB")
-        
+
         # Build Hybrid Retriever BM25 sparse index for fresh build
         try:
             from .hybrid_retriever import HybridRetriever
             HybridRetriever(openai_collection)
         except Exception as hr_err:
             logger.error(f"Failed to build Hybrid Retriever on fresh build: {hr_err}")
-        
+
         return {
             "status": "success",
             "message": "OpenAI RAG system initialized successfully",
@@ -512,14 +514,106 @@ async def initialize_openai_rag_system(
             "chunks_created": total_chunks,
             "total_vectors": total_vectors
         }
-        
+
     except Exception as e:
-        logger.error(f"Error initializing OpenAI RAG system: {e}")
+        logger.error(f"Error building OpenAI vector database: {e}")
         return {
             "status": "error",
-            "message": f"Initialization failed: {str(e)}",
+            "message": f"Build failed: {str(e)}",
             "documents_processed": 0,
             "chunks_created": 0
+        }
+
+
+async def initialize_openai_rag_system(
+    pdf_directory: str = "papers",
+    collection_name: str = "pkd_knowledge_base_openai",
+) -> Dict[str, Any]:
+    """Load the baked production index without network calls or mutations.
+
+    ``pdf_directory`` remains in the signature for compatibility with older
+    callers, but production startup deliberately ignores it. Index creation is
+    owned exclusively by :func:`build_openai_rag_system`.
+    """
+    del pdf_directory
+    global openai_chroma_client, openai_collection
+
+    try:
+        from .index_manifest import (
+            DEFAULT_INDEX_PATH,
+            DEFAULT_MANIFEST_PATH,
+            load_index_manifest,
+            materialize_runtime_index,
+            runtime_checksum_enabled,
+            verify_baked_index,
+        )
+
+        logger.info("Verifying baked vector database before accepting traffic")
+        manifest = await asyncio.to_thread(
+            load_index_manifest,
+            DEFAULT_MANIFEST_PATH,
+            DEFAULT_INDEX_PATH,
+            verify_checksum=runtime_checksum_enabled(),
+        )
+        runtime_index_path = await asyncio.to_thread(
+            materialize_runtime_index,
+            DEFAULT_INDEX_PATH,
+        )
+        verified = await asyncio.to_thread(
+            verify_baked_index,
+            DEFAULT_MANIFEST_PATH,
+            runtime_index_path,
+            verify_checksum=False,
+        )
+        if manifest["collection_name"] != collection_name:
+            raise RuntimeError(
+                f"Baked collection is {manifest['collection_name']!r}, "
+                f"not {collection_name!r}"
+            )
+        openai_chroma_client = verified["client"]
+        openai_collection = verified["collection"]
+
+        from .hybrid_retriever import HybridRetriever
+
+        await asyncio.to_thread(HybridRetriever, openai_collection)
+
+        if os.getenv("PRELOAD_MEDCPT", "false").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            from .cross_encoder_reranker import (
+                CrossEncoderConfig,
+                MedCPTCrossEncoder,
+            )
+
+            config = CrossEncoderConfig.from_environment()
+            await asyncio.to_thread(
+                MedCPTCrossEncoder._load_model,
+                config,
+            )
+
+        return {
+            "status": "success",
+            "message": "Baked vector database loaded and verified",
+            "documents_processed": 0,
+            "chunks_created": 0,
+            "total_vectors": manifest["vector_count"],
+            "requires_rebuild": False,
+            "index_manifest": manifest,
+        }
+    except Exception as error:
+        logger.error("Baked vector database startup failed: %s", error)
+        openai_chroma_client = None
+        openai_collection = None
+        return {
+            "status": "error",
+            "message": f"Baked index unavailable: {error}",
+            "documents_processed": 0,
+            "chunks_created": 0,
+            "total_vectors": 0,
+            "requires_rebuild": True,
         }
 
 
@@ -529,16 +623,16 @@ async def search_knowledge_base(
 ) -> Dict[str, Any]:
     """
     Search the ChromaDB knowledge base for relevant documents
-    
+
     Args:
         query: Search query text
         top_k: Number of top results to return
-        
+
     Returns:
         Dictionary with search results
     """
     global openai_service, openai_helper_service, openai_collection
-    
+
     if openai_collection is None:
         logger.error("ChromaDB collection not initialized")
         return {
@@ -578,7 +672,7 @@ async def search_knowledge_base(
         # Check if SOTA HyDE (Hypothetical Document Embeddings) is enabled
         use_hyde = os.getenv("RAG_HYDE_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
         dense_query_text = query
-        
+
         if use_hyde:
             try:
                 from .query_rewriter import get_query_rewriter
@@ -596,10 +690,10 @@ async def search_knowledge_base(
         from .semantic_reranker import create_evidence_reranker
         reranker = create_evidence_reranker(openai_helper_service or openai_service)
         candidate_limit = max(top_k, reranker.config.candidate_limit)
-        
+
         from .hybrid_retriever import HybridRetriever
         retriever = HybridRetriever()
-        
+
         if retriever.initialized:
             candidates = retriever.hybrid_search(
                 query=query,
@@ -615,12 +709,12 @@ async def search_knowledge_base(
                 n_results=candidate_limit,
                 include=["documents", "metadatas", "distances"]
             )
-            
+
             documents = results["documents"][0] if results["documents"] else []
             metadatas = results["metadatas"][0] if results["metadatas"] else []
             distances = results["distances"][0] if results["distances"] else []
             ids = results.get("ids", [[]])[0] if results.get("ids") else []
-            
+
             candidates = []
             for index, (doc, meta, distance) in enumerate(zip(documents, metadatas, distances)):
                 candidates.append({
@@ -650,7 +744,7 @@ async def search_knowledge_base(
                     parent_swaps += 1
             if parent_swaps > 0:
                 logger.info(f"Hierarchical Parent-Child Context: Expanded parent text for {parent_swaps} chunks.")
-        
+
         logger.info(
             "Knowledge base search returned %s context-safe results from %s candidates "
             "(confidence=%s)",
@@ -658,7 +752,7 @@ async def search_knowledge_base(
             len(candidates),
             retrieval_metadata.get("confidence"),
         )
-        
+
         return {
             "status": "success",
             "query": query,
@@ -666,7 +760,7 @@ async def search_knowledge_base(
             "count": len(formatted_results),
             "retrieval_metadata": retrieval_metadata,
         }
-        
+
     except Exception as e:
         logger.error(f"Error searching knowledge base: {e}")
         return {
@@ -690,19 +784,19 @@ async def get_rag_response(
     3. Format context
     4. Call OpenAI GPT API
     5. Return response with sources
-    
+
     Args:
         query: User query
         top_k: Number of documents to retrieve
         temperature: Model temperature
         max_tokens: Maximum response tokens
         use_query_rewriting: Whether to use query rewriting agent
-        
+
     Returns:
         Dictionary with response and sources
     """
     global openai_service
-    
+
     if openai_service is None or openai_collection is None:
         logger.error("RAG system not initialized")
         return {
@@ -711,7 +805,7 @@ async def get_rag_response(
             "response": None,
             "sources": []
         }
-    
+
     try:
         guardrail_response = get_guardrail_response(query)
         if guardrail_response is not None:
@@ -732,9 +826,9 @@ async def get_rag_response(
 
             search_query = await query_rewriter.rewrite_query_simple(query)
             logger.info(f"Query rewritten: '{query}' → '{search_query}'")
-        
+
         search_results = await search_knowledge_base(search_query, top_k)
-        
+
         if search_results["status"] != "success":
             logger.error(f"Knowledge base search failed: {search_results['message']}")
             return {
@@ -743,7 +837,7 @@ async def get_rag_response(
                 "response": None,
                 "sources": []
             }
-        
+
         results = search_results["results"]
         if not results:
             retrieval_metadata = search_results.get("retrieval_metadata", {})
@@ -765,7 +859,7 @@ async def get_rag_response(
                 "refused": True,
                 "retrieval_metadata": retrieval_metadata,
             }
-        
+
         context_parts = []
         unique_sources = {}
 
@@ -795,9 +889,9 @@ async def get_rag_response(
                 sorted(unique_sources.values(), key=lambda x: -x["relevance_score"])
             )
         ]
-        
+
         context = "\n\n".join(context_parts)
-        
+
         response = openai_service.get_chat_completion_with_context(
             context=context,
             user_query=query,
@@ -821,9 +915,9 @@ async def get_rag_response(
                 "refused": True,
                 "retrieval_metadata": search_results.get("retrieval_metadata", {}),
             }
-        
+
         logger.info(f"Generated RAG response ({len(response)} chars, {len(sources)} sources)")
-        
+
         return {
             "status": "success",
             "response": response,
@@ -833,7 +927,7 @@ async def get_rag_response(
             "refused": False,
             "retrieval_metadata": search_results.get("retrieval_metadata", {}),
         }
-        
+
     except Exception as e:
         logger.error(f"Error generating RAG response: {e}")
         return {
@@ -847,18 +941,18 @@ async def get_rag_response(
 def get_collection_stats() -> Dict[str, Any]:
     """
     Get statistics about the ChromaDB collection
-    
+
     Returns:
         Dictionary with collection statistics
     """
     global openai_collection
-    
+
     if openai_collection is None:
         return {
             "status": "error",
             "message": "Collection not initialized"
         }
-    
+
     try:
         count = openai_collection.count()
         collection_metadata = openai_collection.metadata or {}

@@ -70,7 +70,7 @@ class RebuildSafetyTests(unittest.IsolatedAsyncioTestCase):
             patch.object(openai_rag_init.chromadb, "PersistentClient", return_value=client),
             patch.object(openai_rag_init, "process_pdf_file_with_metadata") as process_pdf,
         ):
-            result = await openai_rag_init.initialize_openai_rag_system()
+            result = await openai_rag_init.build_openai_rag_system()
 
         self.assertEqual(result["status"], "error")
         self.assertTrue(result["requires_rebuild"])

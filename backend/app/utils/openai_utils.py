@@ -7,8 +7,6 @@ import os
 import json
 import logging
 from typing import List, Dict, Tuple, Any, Optional
-import pdfplumber
-from PyPDF2 import PdfReader
 from pathlib import Path
 import re
 import tiktoken
@@ -541,6 +539,8 @@ def extract_metadata(pdf_path: str) -> Dict[str, Any]:
         Dictionary with metadata: title, author, subject, creation_date
     """
     try:
+        from PyPDF2 import PdfReader
+
         with open(pdf_path, 'rb') as f:
             reader = PdfReader(f)
             metadata = reader.metadata
@@ -573,6 +573,8 @@ def extract_text_pages_from_pdf(pdf_path: str) -> List[Dict[str, Any]]:
     the PDF's page numbering, but they naturally produce no text chunks.
     """
     try:
+        import pdfplumber
+
         pages: List[Dict[str, Any]] = []
         with pdfplumber.open(pdf_path) as pdf:
             for page_number, page in enumerate(pdf.pages, start=1):

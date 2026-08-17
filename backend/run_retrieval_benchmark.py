@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Benchmark retrieval directly against a local, ready Chroma collection.
 
-Unlike ``generate_cysticcare_responses.py``, this command never calls the
+Unlike ``generate_dialysiscare_responses.py``, this command never calls the
 chatbot's HTTP endpoint and never generates an answer.  It runs the same
 query-embedding -> hybrid (dense + BM25/RRF) -> reranking path against the
 specified local vector database, then evaluates the ranked chunks with

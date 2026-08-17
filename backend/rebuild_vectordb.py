@@ -89,7 +89,7 @@ async def main() -> int:
     setup_traceai()
 
     logger.info("Starting vector DB rebuild from PDFs...")
-    result = await openai_rag_init.initialize_openai_rag_system(
+    result = await openai_rag_init.build_openai_rag_system(
         pdf_directory="papers",
         collection_name=collection_name,
     )
@@ -104,6 +104,14 @@ async def main() -> int:
     if result.get("status") != "success":
         logger.error("Rebuild failed; the collection remains marked incomplete and will not be served")
         return 1
+    from app.services.index_manifest import write_manifest
+
+    manifest = write_manifest()
+    logger.info(
+        "Wrote baked-index manifest: schema=%s vectors=%s",
+        manifest["index_schema_version"],
+        manifest["vector_count"],
+    )
     return 0
 
 

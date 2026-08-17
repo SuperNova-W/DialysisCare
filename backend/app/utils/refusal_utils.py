@@ -1,15 +1,15 @@
-"""Shared guardrail helpers for PKD-only prompt-gated responses."""
+"""Shared guardrail helpers for peritoneal-dialysis-only prompt-gated responses."""
 
 import re
 from typing import Optional
 
 
 INTRO_MESSAGE = (
-    "Hi, I'm DialysisCare. I'm here to answer questions about PKD and ADPKD, "
-    "including symptoms, diagnosis, treatment options, monitoring, and research."
+    "Hi, I'm DialysisCare. I'm here to answer questions about peritoneal dialysis, "
+    "including modalities, adequacy, diagnosis, treatment options, monitoring, and research."
 )
 
-REFUSAL_MESSAGE = "I am a chatbot designed to answer questions only about PKD and ADPKD."
+REFUSAL_MESSAGE = "I am a chatbot designed to answer questions only about peritoneal dialysis."
 
 _INTRO_QUERY_PATTERNS = (
     r"^who are you(?:[?.!]|$)",
@@ -19,22 +19,21 @@ _INTRO_QUERY_PATTERNS = (
     r"^what(?:'s| is) your name(?:[?.!]|$)",
 )
 
-_PKD_QUERY_PATTERNS = (
-    r"\bpkd\b",
-    r"\badpkd\b",
-    r"\barpkd\b",
-    r"\bpolycystic kidney disease\b",
-    r"\bautosomal dominant polycystic kidney disease\b",
-    r"\bautosomal recessive polycystic kidney disease\b",
-    r"\bpkd1\b",
-    r"\bpkd2\b",
-    r"\bpkhd1\b",
-    r"\bpolycystin(?:-?1|-?2)?\b",
-    r"\btolvaptan\b",
-    r"\bjynarque\b",
-    r"\btotal kidney volume\b",
-    r"\btkv\b",
-    r"\bmayo imaging classification\b",
+_PD_QUERY_PATTERNS = (
+    r"\bpd\b",
+    r"\bperitoneal dialysis\b",
+    r"\bcapd\b",
+    r"\bapd\b",
+    r"\bccpd\b",
+    r"\bnipd\b",
+    r"\bperitoneal membrane\b",
+    r"\bperitonitis\b",
+    r"\bpd catheter\b",
+    r"\bkt/v\b",
+    r"\bultrafiltration\b",
+    r"\bdialysate\b",
+    r"\bicodextrin\b",
+    r"\bencapsulating peritoneal sclerosis\b",
 )
 
 _REFUSAL_CUE_PATTERNS = (
@@ -51,9 +50,8 @@ _REFUSAL_CUE_PATTERNS = (
 )
 
 _DOMAIN_CUE_PATTERNS = (
-    r"\bpkd\b",
-    r"\badpkd\b",
-    r"\bpolycystic kidney disease\b",
+    r"\bpd\b",
+    r"\bperitoneal dialysis\b",
     r"\bkidney[- ]related disease\b",
     r"\bkidney[- ]disease topics?\b",
 )
@@ -81,11 +79,11 @@ def _matches_any_pattern(text: str, patterns: tuple[str, ...]) -> bool:
 
 
 def is_query_in_scope(query: Optional[str]) -> bool:
-    """Return True when the query is clearly about PKD or ADPKD."""
+    """Return True when the query is clearly about peritoneal dialysis."""
     normalized = _normalize_text(query)
     if not normalized:
         return False
-    return _matches_any_pattern(normalized, _PKD_QUERY_PATTERNS)
+    return _matches_any_pattern(normalized, _PD_QUERY_PATTERNS)
 
 
 def is_intro_query(query: Optional[str]) -> bool:

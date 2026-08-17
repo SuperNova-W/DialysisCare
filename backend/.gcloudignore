@@ -10,6 +10,7 @@
 .env
 .env.*
 .venv/
+.venv*/
 venv/
 env/
 
@@ -24,6 +25,11 @@ htmlcov/
 
 # Local logs
 *.log
+
+# Offline retrieval benchmark outputs (not used by the API runtime)
+app/retrieval_ab_comparison_*.json
+app/retrieval_metrics_*.json
+app/retrieval_trace_*.json
 
 # Large database backups
 app/openai_chroma_data.backup.*/
