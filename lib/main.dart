@@ -64,6 +64,8 @@ class _ChatScreenState extends State<ChatScreen> {
   String? _error;
   bool _disclaimerAccepted = false;
   List<String> _followupQuestions = [];
+  bool _suggestionsExpanded = false;
+  int _suggestionIndex = 0;
 
   static const List<QuickTopic> quickTopics = [
     (
@@ -241,6 +243,8 @@ class _ChatScreenState extends State<ChatScreen> {
       _currentStatus = 'Opening the evidence stream…';
       _error = null;
       _followupQuestions = [];
+      _suggestionsExpanded = false;
+      _suggestionIndex = 0;
     });
 
     final requestEpoch = ++_requestEpoch;
@@ -316,7 +320,14 @@ class _ChatScreenState extends State<ChatScreen> {
           case ChatStreamEventType.followup:
             setState(() {
               _followupQuestions = event.followupQuestions ?? const [];
+              _suggestionsExpanded = false;
+              _suggestionIndex = 0;
             });
+            _scrollToBottom();
+            // The suggestions panel grows via AnimatedSize (Brand.smooth),
+            // so scroll again once it's done expanding to keep the last
+            // lines of the answer from ending up hidden behind it.
+            Future.delayed(Brand.smooth, _scrollToBottom);
             break;
           case ChatStreamEventType.validation:
             flushBufferedChunks();
@@ -384,6 +395,8 @@ class _ChatScreenState extends State<ChatScreen> {
       _isRequestActive = false;
       _currentStatus = null;
       _followupQuestions = [];
+      _suggestionsExpanded = false;
+      _suggestionIndex = 0;
     });
     _addMessage(
       "Chat cleared. Start a new peritoneal dialysis learning question when you're ready.",
@@ -401,6 +414,8 @@ class _ChatScreenState extends State<ChatScreen> {
       _isRequestActive = false;
       _currentStatus = null;
       _followupQuestions = [];
+      _suggestionsExpanded = false;
+      _suggestionIndex = 0;
     });
     _initializeSession();
   }
@@ -1304,6 +1319,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildFollowUpSuggestions() {
+    final total = _followupQuestions.length;
     return Container(
       width: double.infinity,
       decoration: const BoxDecoration(
@@ -1315,37 +1331,108 @@ class _ChatScreenState extends State<ChatScreen> {
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'SUGGESTED QUESTIONS',
-              style: brandText(
-                11,
-                FontWeight.w600,
-                1.4,
-                spacing: 1,
-                color: Brand.steel,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (var i = 0; i < _followupQuestions.length; i++)
-                  FadeSlideIn(
-                    delay: Duration(milliseconds: i * 60),
-                    offset: const Offset(0, 8),
-                    child: ActionChip(
-                      label: Text(_followupQuestions[i]),
-                      onPressed: _isRequestActive
-                          ? null
-                          : () => _sendMessage(_followupQuestions[i]),
+            InkWell(
+              onTap: () {
+                setState(() => _suggestionsExpanded = !_suggestionsExpanded);
+              },
+              child: Row(
+                children: [
+                  Text(
+                    _suggestionsExpanded
+                        ? 'SUGGESTED QUESTIONS'
+                        : 'EXPLORE SUGGESTED QUESTIONS ($total)',
+                    style: brandText(
+                      11,
+                      FontWeight.w600,
+                      1.4,
+                      spacing: 1,
+                      color: Brand.steel,
                     ),
                   ),
-              ],
+                  const SizedBox(width: 4),
+                  Icon(
+                    _suggestionsExpanded
+                        ? Icons.expand_less
+                        : Icons.expand_more,
+                    size: 16,
+                    color: Brand.steel,
+                  ),
+                ],
+              ),
+            ),
+            AnimatedSize(
+              duration: Brand.smooth,
+              curve: Brand.easing,
+              alignment: Alignment.topCenter,
+              child: _suggestionsExpanded
+                  ? Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: _buildSuggestionPager(),
+                    )
+                  : const SizedBox(width: double.infinity),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildSuggestionPager() {
+    final total = _followupQuestions.length;
+    if (total == 0) return const SizedBox.shrink();
+    final index = _suggestionIndex.clamp(0, total - 1);
+    final question = _followupQuestions[index];
+
+    return Row(
+      key: ValueKey(index),
+      children: [
+        IconButton(
+          onPressed: index > 0
+              ? () => setState(() => _suggestionIndex = index - 1)
+              : null,
+          icon: const Icon(Icons.chevron_left),
+          color: Brand.steel,
+          splashRadius: 20,
+        ),
+        Expanded(
+          child: FadeSlideIn(
+            key: ValueKey(question),
+            offset: const Offset(0, 8),
+            child: ActionChip(
+              label: Text(
+                question,
+                overflow: TextOverflow.ellipsis,
+                maxLines: 2,
+              ),
+              onPressed: _isRequestActive
+                  ? null
+                  : () => _sendMessage(question),
+            ),
+          ),
+        ),
+        if (total > 1) ...[
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Text(
+              '${index + 1}/$total',
+              style: brandText(
+                11,
+                FontWeight.w600,
+                1.2,
+                color: Brand.muted,
+              ),
+            ),
+          ),
+        ],
+        IconButton(
+          onPressed: index < total - 1
+              ? () => setState(() => _suggestionIndex = index + 1)
+              : null,
+          icon: const Icon(Icons.chevron_right),
+          color: Brand.steel,
+          splashRadius: 20,
+        ),
+      ],
     );
   }
 
