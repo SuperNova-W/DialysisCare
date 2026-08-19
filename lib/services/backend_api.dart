@@ -144,6 +144,7 @@ class BackendApi {
     required String message,
     bool useStepback = false,
     bool useCoT = true,
+    bool skipVaguenessCheck = false,
   }) async* {
     final client = http.Client();
     try {
@@ -155,6 +156,7 @@ class BackendApi {
           'use_stepback': useStepback,
           'use_cot': useCoT,
           'pre_check_topic': true,
+          'skip_vagueness_check': skipVaguenessCheck,
         });
 
       final response = await client.send(request);
@@ -233,6 +235,17 @@ Stream<ChatStreamEvent> decodeChatStream(Stream<List<int>> byteStream) async* {
               : const [],
         );
         break;
+      case ChatStreamEventType.clarification:
+        final clarificationData = data is Map<String, dynamic> ? data : const {};
+        final options = clarificationData['options'];
+        yield ChatStreamEvent(
+          type: type,
+          clarificationQuestion: clarificationData['clarifying_question']?.toString(),
+          clarificationOptions: options is List
+              ? options.map((option) => option.toString()).toList()
+              : const [],
+        );
+        break;
       case ChatStreamEventType.validation:
         yield ChatStreamEvent(
           type: type,
@@ -285,6 +298,7 @@ enum ChatStreamEventType {
   sources('sources'),
   chunk('chunk'),
   followup('followup'),
+  clarification('clarification'),
   validation('validation'),
   error('error'),
   done('done');
@@ -310,6 +324,8 @@ class ChatStreamEvent {
     this.sourceCitations,
     this.chunk,
     this.followupQuestions,
+    this.clarificationQuestion,
+    this.clarificationOptions,
     this.validation,
     this.validationText,
     this.error,
@@ -322,6 +338,8 @@ class ChatStreamEvent {
   final List<String>? sourceCitations;
   final String? chunk;
   final List<String>? followupQuestions;
+  final String? clarificationQuestion;
+  final List<String>? clarificationOptions;
   final ValidationInfo? validation;
   final String? validationText;
   final String? error;

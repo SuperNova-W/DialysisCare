@@ -31,12 +31,14 @@ class ChatMessage {
   final bool isUser;
   final DateTime timestamp;
   ValidationInfo? validation;
+  final List<String>? clarificationOptions;
 
   ChatMessage({
     required this.content,
     required this.isUser,
     required this.timestamp,
     this.validation,
+    this.clarificationOptions,
   });
 }
 
@@ -66,6 +68,7 @@ class _ChatScreenState extends State<ChatScreen> {
   List<String> _followupQuestions = [];
   bool _suggestionsExpanded = false;
   int _suggestionIndex = 0;
+  String? _pendingClarificationQuery;
 
   static const List<QuickTopic> quickTopics = [
     (
@@ -226,13 +229,16 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  Future<void> _sendMessage(String text) async {
+  Future<void> _sendMessage(String text, {String? queryOverride}) async {
     if (text.trim().isEmpty) return;
     if (_isRequestActive) return;
     if (!_isSessionInitialized || _sessionId == null) {
       setState(() => _error = 'Session is not initialized yet.');
       return;
     }
+
+    final skipVaguenessCheck = queryOverride != null;
+    final query = queryOverride ?? text;
 
     _addMessage(text, isUser: true);
     _textController.clear();
@@ -242,6 +248,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _isRequestActive = true;
       _currentStatus = 'Opening the evidence stream…';
       _error = null;
+      _pendingClarificationQuery = null;
       _followupQuestions = [];
       _suggestionsExpanded = false;
       _suggestionIndex = 0;
@@ -296,7 +303,8 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       final stream = _api.chatStream(
         sessionId: _sessionId!,
-        message: text.trim(),
+        message: query.trim(),
+        skipVaguenessCheck: skipVaguenessCheck,
       );
 
       await for (final event in stream) {
@@ -316,6 +324,23 @@ class _ChatScreenState extends State<ChatScreen> {
           case ChatStreamEventType.chunk:
             final chunk = event.chunk;
             if (chunk != null && chunk.isNotEmpty) queueChunk(chunk);
+            break;
+          case ChatStreamEventType.clarification:
+            setState(() {
+              _messages.add(
+                ChatMessage(
+                  content: event.clarificationQuestion?.isNotEmpty == true
+                      ? event.clarificationQuestion!
+                      : 'Could you clarify what you mean?',
+                  isUser: false,
+                  timestamp: DateTime.now(),
+                  clarificationOptions: event.clarificationOptions,
+                ),
+              );
+              _isLoading = false;
+              _pendingClarificationQuery = text;
+            });
+            _scrollToBottom();
             break;
           case ChatStreamEventType.followup:
             setState(() {
@@ -387,6 +412,17 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  /// Answers a clarifying question by sending the picked option, enriched
+  /// with the original vague query for retrieval context, while skipping
+  /// vagueness re-classification for this turn.
+  void _answerClarification(String option) {
+    final original = _pendingClarificationQuery;
+    final query = (original == null || original.isEmpty)
+        ? option
+        : '$original ($option)';
+    _sendMessage(option, queryOverride: query);
+  }
+
   void _clearChat() {
     _requestEpoch++;
     setState(() {
@@ -397,6 +433,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _followupQuestions = [];
       _suggestionsExpanded = false;
       _suggestionIndex = 0;
+      _pendingClarificationQuery = null;
     });
     _addMessage(
       "Chat cleared. Start a new peritoneal dialysis learning question when you're ready.",
@@ -416,6 +453,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _followupQuestions = [];
       _suggestionsExpanded = false;
       _suggestionIndex = 0;
+      _pendingClarificationQuery = null;
     });
     _initializeSession();
   }
@@ -928,6 +966,25 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                   if (!isUser && message.validation != null)
                     _buildValidationBadge(message.validation!),
+                  if (!isUser &&
+                      message.clarificationOptions != null &&
+                      message.clarificationOptions!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final option in message.clarificationOptions!)
+                            ActionChip(
+                              label: Text(option),
+                              onPressed: _isRequestActive
+                                  ? null
+                                  : () => _answerClarification(option),
+                            ),
+                        ],
+                      ),
+                    ),
                 ],
               ),
             ),

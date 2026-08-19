@@ -501,6 +501,21 @@ def fallback_followup_questions(query: str) -> List[str]:
     ]
 
 
+def normalize_clarification(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate the classifier output; fail open so malformed output never blocks a question."""
+    options_raw = payload.get("options", [])
+    if not isinstance(options_raw, list):
+        options_raw = []
+    options = [str(option).strip() for option in options_raw if str(option).strip()][:4]
+    question = str(payload.get("clarifying_question") or "").strip()
+    is_vague = bool(payload.get("is_vague", False)) and bool(question) and len(options) >= 2
+    return {
+        "is_vague": is_vague,
+        "clarifying_question": question if is_vague else "",
+        "options": options if is_vague else [],
+    }
+
+
 def normalize_postprocess(payload: Dict[str, Any], query: str) -> Dict[str, Any]:
     """Validate helper output and supply deterministic non-LLM fallbacks."""
     raw_questions = payload.get("followup_questions", [])

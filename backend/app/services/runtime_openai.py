@@ -374,6 +374,89 @@ class RuntimeOpenAI:
                 )
             )
 
+    async def classify_vagueness(
+        self,
+        query: str,
+        tracker: RequestUsage,
+    ) -> Dict[str, Any]:
+        """Decide whether a query is too vague to retrieve/answer well.
+
+        Runs before retrieval so an ambiguous question can be clarified
+        instead of spending the answer/postprocess budget on a guess.
+        """
+        schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "is_vague": {"type": "boolean"},
+                "clarifying_question": {"type": "string"},
+                "options": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 4,
+                    "items": {"type": "string"},
+                },
+            },
+            "required": ["is_vague", "clarifying_question", "options"],
+        }
+        system = (
+            "Decide whether a user's question about peritoneal dialysis or "
+            "kidney disease is too vague or ambiguous to answer well without "
+            "more information. A question is vague if it could reasonably mean "
+            "several different things, is missing a detail needed for a useful "
+            "answer (e.g. which treatment, which symptom, which stage), or is "
+            "too short/broad to retrieve a focused answer. A question is NOT "
+            "vague merely because it uses informal language or omits "
+            "'PD'/'peritoneal dialysis' - infer domain context from a "
+            "conversational follow-up. If the question is off-topic, unsafe, a "
+            "greeting, or already specific enough, set is_vague to false. When "
+            "is_vague is true, write one short, friendly clarifying question "
+            "and 2-4 concrete options the user could pick from that would each "
+            "lead to a good answer. When is_vague is false, leave "
+            "clarifying_question and options empty."
+        )
+
+        async def call() -> Any:
+            return await self.client.chat.completions.create(
+                model=self.helper_model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": query},
+                ],
+                max_completion_tokens=int(os.getenv("VAGUENESS_MAX_TOKENS", "220")),
+                temperature=0,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "vagueness_classification",
+                        "strict": True,
+                        "schema": schema,
+                    },
+                },
+                store=False,
+                prompt_cache_key="dialysiscare-vagueness-v1",
+            )
+
+        response, retries, started = await self._call_with_retry(
+            "vagueness_classify", self.helper_model, tracker, call
+        )
+        choice = response.choices[0]
+        tracker.record(
+            OperationUsage(
+                operation="vagueness_classify",
+                model=self.helper_model,
+                latency_ms=round((time.perf_counter() - started) * 1000, 2),
+                retries=retries,
+                finish_reason=choice.finish_reason,
+                **usage_fields(response.usage),
+            )
+        )
+        try:
+            payload = json.loads(choice.message.content or "{}")
+        except json.JSONDecodeError:
+            payload = {}
+        return payload
+
     async def postprocess(
         self,
         query: str,

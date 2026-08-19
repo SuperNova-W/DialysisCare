@@ -103,6 +103,7 @@ class ChatRequest(BaseModel):
     pre_check_topic: bool = False  # Legacy flag; topic gating is handled inside agent prompts
     use_validation: bool = True  # Enable answer validation agent
     include_retrieval_debug: bool = False  # Return chunk IDs/content for offline retrieval evaluation
+    skip_vagueness_check: bool = False  # Set true when this query is the user's answer to a clarifying question
 
 
 class SourceInfo(BaseModel):
@@ -995,7 +996,10 @@ async def _generate_bounded_chat_stream_impl(
     request: ChatRequest,
     http_request: Request,
 ):
-    """Production stream with a fixed one-embedding/two-chat-call budget."""
+    """Production stream with a fixed one-embedding/three-chat-call budget
+
+    (answer, postprocess, and — unless the caller already answered a
+    clarifying question this turn — an upfront vagueness classification)."""
     from .services.request_controls import request_controls
     from .services.runtime_openai import ProviderUnavailable, get_runtime_openai
     from .services.runtime_pipeline import (
@@ -1003,6 +1007,7 @@ async def _generate_bounded_chat_stream_impl(
         answer_user_message,
         guardrail_answer,
         hash_session_id,
+        normalize_clarification,
         normalize_postprocess,
         retrieve,
         select_agent_mode,
@@ -1027,6 +1032,25 @@ async def _generate_bounded_chat_stream_impl(
                 return
 
             service = get_runtime_openai()
+
+            if not request.skip_vagueness_check:
+                yield json.dumps(
+                    {"type": "status", "data": "Checking if the question needs clarification..."}
+                ) + "\n"
+                try:
+                    raw_clarification = await service.classify_vagueness(request.query, tracker)
+                except ProviderUnavailable as error:
+                    logger.warning(
+                        "Vagueness classification unavailable; answering directly (%s)",
+                        error.code,
+                    )
+                    raw_clarification = {}
+                clarification = normalize_clarification(raw_clarification)
+                if clarification["is_vague"]:
+                    yield json.dumps({"type": "clarification", "data": clarification}) + "\n"
+                    yield json.dumps({"type": "done"}) + "\n"
+                    return
+
             mode = select_agent_mode(request.query)
             tracker.selected_mode = mode
             if mode == "stepback_lite":
